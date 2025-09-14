@@ -1,0 +1,49 @@
+# HTML Parser Configuration
+parser:
+  version: "2.1"
+  encoding:
+    primary: "euc-kr"
+    fallback: "utf-8"
+    error_handling: "ignore"
+  
+  html_parser: "html.parser"  # Not lxml for better Korean text handling
+  
+  expected_sections:
+    - "독립된 감사인의 감사보고서"
+    - "(첨부)재 무 제 표"
+    - "주석"
+    - "내부회계관리제도 검토의견"
+    - "외부감사 실시내용"
+  
+  table_extraction:
+    primary_method: "pandas_html5lib"
+    fallback_method: "beautifulsoup"
+    include_metadata: true
+  
+  validation:
+    min_section_quality_score: 0.7
+    check_korean_encoding: true
+    validate_table_counts: true
+    log_quality_issues: true
+
+# Data Quality Thresholds
+quality:
+  min_quality_score: 0.8
+  max_encoding_issues: 0
+  min_sections_found: 4
+  min_tables_per_section: 0
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_logging: false
+  log_file: "parser.log"
+
+# Output Configuration
+output:
+  include_flat_content: true  # For backward compatibility
+  include_validation_results: true
+  include_extraction_metadata: true
+  pretty_print: true
+  ensure_ascii: false

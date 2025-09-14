@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AuditReport",
+  "type": "object",
+  "required": ["source_filename", "report_year", "content"],
+  "properties": {
+    "version": { "type": "string" },
+    "source_path": { "type": "string" },
+    "source_filename": { "type": "string" },
+    "report_year": { "type": "integer" },
+    "title": { "type": "string" },
+    "headings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "level": { "type": "string" },
+          "text": { "type": "string" }
+        },
+        "required": ["level", "text"]
+      }
+    },
+    "content": { "type": "string" },
+    "tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer" },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "rows": {
+            "type": "array",
+            "items": { "type": "array", "items": { "type": ["string", "number", "null"] } }
+          }
+        },
+        "required": ["index", "columns", "rows"]
+      }
+    }
+  }
+}
