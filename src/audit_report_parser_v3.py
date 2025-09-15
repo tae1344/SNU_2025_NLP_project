@@ -14,6 +14,7 @@ Version 3.0에서는 텍스트 기반 섹션 분류와 계층적 파싱을 지�
 
 import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -285,49 +286,77 @@ class AuditReportParser:
 
 
 def main():
-    """메인 함수 - 사용 예시 (Version 3.0)"""
-    parser = AuditReportParser(log_level="DEBUG")
+    """메인 함수 - 2014년부터 2024년까지 모든 감사보고서 파싱"""
+    # 파서 초기화
+    parser = AuditReportParser(log_level="INFO")
 
-    # HTML 파일 파싱
-    input_file = "data/raw/감사보고서_2014.htm"
-    output_file = "data/processed/감사보고서_2014_parser_v3.json"
+    # 연도별 파싱 결과 저장
+    all_results = {}
+    total_quality_score = 0.0
+    successful_parses = 0
 
-    try:
-        # 감사보고서 파싱
-        result = parser.parse_report(input_file)
+    year_range = range(2014, 2025)
+    print(f"=== {year_range[0]}년 ~ {year_range[-1]}년 감사보고서 파싱 시작 ===")
 
-        # JSON 파일로 저장
-        parser.save_to_json(result, output_file)
+    for year in year_range:  # 2014년부터 2024년까지
+        input_file = f"data/raw/감사보고서_{year}.htm"
+        output_file = f"data/processed/감사보고서_{year}_parser_v3.json"
 
-        print(f"파싱 완료: {result['metadata']['total_sections']}개 메인 섹션")
+        print(f"\n--- {year}년 감사보고서 파싱 중... ---")
 
-        # 각 메인 섹션의 정보 출력
-        for i, section in enumerate(result["sections"]):
-            section_type = section.get("section_type", "UNKNOWN")
-            title = section.get("title", "Unknown")
-            tables = len(section.get("tables", []))
-            subsections = section.get("subsections", [])
-            hierarchy_level = section.get("hierarchy_level", 1)
-            parent_section = section.get("parent_section")
+        try:
+            # 파일 존재 확인
+            if not os.path.exists(input_file):
+                print(f"❌ 파일이 존재하지 않습니다: {input_file}")
+                continue
 
-            print(f"  {section_type}-{i+1}: {title}")
-            if hierarchy_level > 1:
-                print(f"    - 상위 섹션: {parent_section}")
-            if subsections:
-                print(f"    - {len(subsections)}개 하위 섹션")
-                for j, sub in enumerate(subsections):
-                    sub_title = sub.get("title", "Unknown")
-                    sub_tables = len(sub.get("tables", []))
-                    print(f"      {j+1}. {sub_title} ({sub_tables}개 테이블)")
-            if tables > 0:
-                print(f"    - {tables}개 테이블")
+            # 파싱 실행
+            result = parser.parse_report(input_file)
 
-        # 검증 결과 출력
-        validation = result.get("validation", {})
-        print(f"\n품질 점수: {validation.get('overall_score', 0.0):.2f}")
+            # JSON 파일로 저장
+            parser.save_to_json(result, output_file)
 
-    except Exception as e:
-        print(f"파싱 실패: {e}")
+            # 결과 저장
+            all_results[year] = result
+            quality_score = result["validation"]["overall_score"]
+            total_quality_score += quality_score
+            successful_parses += 1
+
+            # 결과 출력
+            print(f"✅ 파싱 완료: {result['metadata']['total_sections']}개 메인 섹션")
+            print(f"   품질 점수: {quality_score:.2f}")
+
+            # 각 메인 섹션의 정보 출력 (간략하게)
+            for i, section in enumerate(result["sections"]):
+                section_type = section.get("section_type", "UNKNOWN")
+                title = section.get("title", "Unknown")
+                tables = len(section.get("tables", []))
+                subsections = section.get("subsections", [])
+
+                print(f"   {section_type}-{i+1}: {title}")
+                if subsections:
+                    print(f"     - {len(subsections)}개 하위 섹션")
+                if tables > 0:
+                    print(f"     - {tables}개 테이블")
+
+            print(f"   JSON 파일 저장 완료: {output_file}")
+
+        except Exception as e:
+            print(f"❌ {year}년 파싱 실패: {str(e)}")
+            continue
+
+    # 전체 결과 요약
+    print(f"\n=== 전체 파싱 결과 요약 ===")
+    print(f"성공적으로 파싱된 연도: {successful_parses}/11년")
+    if successful_parses > 0:
+        avg_quality_score = total_quality_score / successful_parses
+        print(f"평균 품질 점수: {avg_quality_score:.2f}")
+
+        # 연도별 품질 점수 출력
+        print(f"\n연도별 품질 점수:")
+        for year, result in all_results.items():
+            quality_score = result["validation"]["overall_score"]
+            print(f"  {year}년: {quality_score:.2f}")
 
 
 if __name__ == "__main__":

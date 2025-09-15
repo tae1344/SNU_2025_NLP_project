@@ -31,9 +31,6 @@ from table_extractor import TableExtractor
 from text_cleaner import TextCleaner
 from data_validator import DataValidator
 
-# 기존 모듈과의 호환성을 위해 기존 클래스도 import
-from html_parser import HTMLParser
-
 __all__ = [
     "HTMLParserV3",
     "SectionParser",
