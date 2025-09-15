@@ -249,8 +249,8 @@ class SectionParser:
         tables = self._extract_tables_in_section(subsection_tag, soup)
 
         return {
-            "section_id": f"SECTION-{section_number}-{index + 1}",
-            "section_type": f"SECTION-{section_number}",
+            "section_id": f"{parent_section["section_id"]}-{index + 1}",
+            "section_type": "SECTION-2",  # 하위 섹션은 항상 SECTION-2
             "title": section_text,
             "hierarchy_level": 2,
             "parent_section": {
