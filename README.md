@@ -12,7 +12,7 @@
 
 ---
 
-## 🛠 기술 스택
+## 기술 스택
 - **언어**: Python 3.10
 - **데이터 파싱**: BeautifulSoup4
 - **데이터베이스**: Neo4j (AuraDB Free / Community Edition)
