@@ -48,7 +48,7 @@
 
 ### 2. 데이터 적재
 - **Neo4j (AuraDB Free / Community Edition)** 사용
-- 파서 출력(JSON/CSV) → Python 드라이버로 **Upsert 적재**
+- 파서 출력(JSON) → Python 드라이버로 **Upsert 적재**
 - **개념 매핑(concept_map.csv)** 정의 → 다양한 표현을 표준화된 Concept 키로 통일
 - **단위 관리(Unit 노드)** → 통일된 환산 스케일 적용
 
