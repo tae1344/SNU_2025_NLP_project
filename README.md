@@ -12,6 +12,16 @@
 
 ---
 
+## 🛠 기술 스택
+- **언어**: Python 3.10
+- **데이터 파싱**: BeautifulSoup4
+- **데이터베이스**: Neo4j (AuraDB Free / Community Edition)
+- **드라이버**: Neo4j Python Driver
+- **시각화**: Neo4j Browser, Neo4j Bloom
+- **버전 관리**: Git, GitHub
+
+---
+
 ## 현재까지 진행 상황
 1. **원자료 확보**
    - 삼성전자 2014–2024년 감사보고서 HTML 파일 (11개)
