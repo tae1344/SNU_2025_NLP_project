@@ -211,4 +211,7 @@ __marimo__/
 .cursor/
 .cursorrules
 .cursorignore
-.cursorignore
+
+
+temp/
+data/processed/
