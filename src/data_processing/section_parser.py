@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 from bs4 import BeautifulSoup
 from io import StringIO
 import pandas as pd
+from data_processing.text_cleaner import TextCleaner
 
 
 class SectionParser:
@@ -32,6 +33,7 @@ class SectionParser:
             log_level: 로깅 레벨 (DEBUG, INFO, WARNING, ERROR)
         """
         self.logger = self._setup_logger(log_level)
+        self.text_cleaner = TextCleaner(log_level)
 
     def _setup_logger(self, log_level: str) -> logging.Logger:
         """로거 설정"""
@@ -350,6 +352,15 @@ class SectionParser:
 
             # 테이블 데이터 정리
             table_records = processed_df.to_dict("records")
+
+            for record in table_records:
+                for k, v in record.items():
+                    record[k] = (
+                        self.text_cleaner.clean_table_text(v)
+                        if isinstance(v, str)
+                        else v
+                    )
+
             table_records = self._clean_nan_values(table_records)
 
             return {

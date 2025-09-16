@@ -252,39 +252,6 @@ class AuditReportParser:
         """
         return self.data_validator.generate_validation_report(validation_result)
 
-    def get_parser_info(self) -> Dict[str, Any]:
-        """
-        파서 정보 반환
-
-        Returns:
-            파서 정보 딕셔너리
-        """
-        return {
-            "parser_name": "AuditReportParser",
-            "version": "3.0",
-            "modules": {
-                "html_parser": "HTMLParserV3",
-                "section_parser": "SectionParser",
-                "table_extractor": "TableExtractor",
-                "text_cleaner": "TextCleaner",
-                "data_validator": "DataValidator",
-            },
-            "features": [
-                "텍스트 기반 섹션 분류 (태그 기반이 아님)",
-                "계층적 섹션 파싱 (SECTION-1 → SECTION-2 → SECTION-3...)",
-                '주석 섹션 특별 처리 ("주석" 텍스트 기반 감지)',
-                "부모-자식 관계 추적",
-                "중복 방지 및 견고한 에러 처리",
-                "테이블 데이터 추출 및 주석 참조 처리",
-                "텍스트 정규화 및 정제",
-                "데이터 품질 검증 및 무결성 확인",
-                "다양한 인코딩 지원",
-                "금융 도메인 특화 처리",
-                "모듈화된 아키텍처",
-            ],
-        }
-
-
 def main():
     """메인 함수 - 2014년부터 2024년까지 모든 감사보고서 파싱"""
     # 파서 초기화
