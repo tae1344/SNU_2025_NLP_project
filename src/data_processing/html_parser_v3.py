@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union, List, Dict, Any
 from io import StringIO
+from bs4.element import ResultSet
 import pandas as pd
 from bs4 import BeautifulSoup
 
@@ -81,6 +82,9 @@ class HTMLParserV3:
         # 스크립트/스타일 태그 제거
         self._remove_unnecessary_tags(soup)
 
+        # BR/공백/&nbsp;만 포함된 레이아웃용 태그 제거
+        self._remove_empty_layout_tags(soup)
+
         self.logger.info(f"HTML 파일 로딩 및 정리 완료: {file_path.name}")
         return soup
 
@@ -125,6 +129,81 @@ class HTMLParserV3:
         """불필요한 태그 제거"""
         for tag in soup(["script", "style", "meta", "link"]):
             tag.decompose()
+
+    def _remove_empty_layout_tags(self, soup: BeautifulSoup) -> None:
+        """
+        BR/공백/&nbsp;만 포함된 P/DIV/SPAN 등의 레이아웃용 태그 제거
+
+        - <p><br></p>, <p><br><br>...</p>
+        - <p><br><br>... &nbsp; &nbsp; ...</p>
+        - <span>&nbsp; &nbsp; ...</span>
+        - 텍스트가 공백/nbsp 뿐인 경우
+        """
+        removed_count = 0
+
+        def is_layout_only(tag: ResultSet) -> bool:
+            # 태그가 문자열만 가지고 있고, 그 문자열이 공백/nbsp 뿐인지 검사
+            def is_empty_text(text: str) -> bool:
+                if text is None:
+                    return True
+                # BeautifulSoup에서는 &nbsp;가 \u00A0로 변환되는 경우가 많음
+                normalized = text.replace("\u00a0", " ")
+                normalized = normalized.replace("\xa0", " ")
+                # &nbsp; 리터럴이 남아있을 수 있어 추가 치환
+                normalized = normalized.replace("&nbsp;", " ")
+                normalized = normalized.replace("&#160;", " ")
+                return len(normalized.strip()) == 0
+
+            # 허용되는 하위 요소: <br> 또는 공백/nbsp 텍스트, 그리고 같은 규칙의 <span>
+            for child in tag.contents:
+                name = getattr(child, "name", None)
+                if name == "br":
+                    continue
+                if name in {"span"}:
+                    # span 내부 텍스트가 비어있는지 확인
+                    if not is_empty_text(child.get_text("", strip=False)):
+                        return False
+                    continue
+                if isinstance(child, str):
+                    if not is_empty_text(child):
+                        return False
+                    continue
+                # 그 외의 태그가 존재하면 레이아웃 전용이 아님
+                return False
+
+            # 내용이 모두 허용 요소로만 구성됨
+            # 추가로 전체 텍스트가 비어있는지 확인
+            return is_empty_text(tag.get_text("", strip=False))
+
+        # 대상 태그 순회 (p/div/span 중심)
+        for t in list(soup.find_all(["p", "div", "span"])):
+            try:
+                if is_layout_only(t):
+                    t.decompose()
+                    removed_count += 1
+            except Exception:
+                # 예외가 발생해도 파싱에 영향 없도록 무시
+                continue
+
+        # 연속된 <br> 정리: 같은 부모 아래에서 2개 이상 연속된 <br>는 1개만 남김
+        for parent in soup.find_all(True):
+            # 너무 많은 반복을 피하기 위해 자식 수가 적은 경우만 처리
+            if not parent.contents or len(parent.contents) < 2:
+                continue
+            i = 0
+            while i < len(parent.contents) - 1:
+                curr = parent.contents[i]
+                nxt = parent.contents[i + 1]
+                if (
+                    getattr(curr, "name", None) == "br"
+                    and getattr(nxt, "name", None) == "br"
+                ):
+                    nxt.extract()
+                    removed_count += 1
+                    continue  # 같은 i에서 다음 것도 검사
+                i += 1
+
+        self.logger.debug(f"빈/형식용 태그 제거: {removed_count}개")
 
     def find_section1_tags(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """모든 SECTION-1 태그 찾기"""
