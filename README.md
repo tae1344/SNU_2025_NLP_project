@@ -13,7 +13,7 @@
 ---
 
 ## 기술 스택
-- **언어**: Python 3.10
+- **언어**: Python 3.13
 - **데이터 파싱**: BeautifulSoup4
 - **데이터베이스**: Neo4j (AuraDB Free / Community Edition)
 - **드라이버**: Neo4j Python Driver
