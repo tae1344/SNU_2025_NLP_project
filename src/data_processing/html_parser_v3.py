@@ -85,6 +85,9 @@ class HTMLParserV3:
         # BR/공백/&nbsp;만 포함된 레이아웃용 태그 제거
         self._remove_empty_layout_tags(soup)
 
+        # 불필요한 텍스트 패턴 제거
+        self._remove_unnecessary_texts(soup)
+
         self.logger.info(f"HTML 파일 로딩 및 정리 완료: {file_path.name}")
         return soup
 
@@ -204,6 +207,127 @@ class HTMLParserV3:
                 i += 1
 
         self.logger.debug(f"빈/형식용 태그 제거: {removed_count}개")
+
+    def _remove_unnecessary_texts(self, soup: BeautifulSoup) -> None:
+        """
+        불필요한 텍스트 패턴 제거
+
+        - "계속;" 텍스트가 포함된 태그 제거
+        - 다른 content 안의 "계속;" 텍스트를 빈 문자열로 치환
+        - 추후 다른 패턴도 쉽게 추가 가능한 구조
+        """
+        removed_count = 0
+
+        # 제거할 텍스트 패턴 정의 (문자열과 정규식 모두 지원)
+        text_patterns = {
+            # 문자열 패턴 예시
+            # "더보기": {
+            #     "type": "string",
+            #     "action": "remove_tag_if_only_text",
+            #     "fallback_action": "replace_with_empty",
+            #     "description": "더보기 텍스트 패턴",
+            # },
+            # 정규식 패턴
+            "계속_패턴": {
+                "type": "regex",
+                "pattern": r"계속\s*[;:]",  # "계속;", "계속:", "계속 :", "계속 ;" 등
+                "action": "remove_tag_if_only_text",
+                "fallback_action": "replace_with_empty",
+                "description": "계속 관련 텍스트 패턴",
+            },
+        }
+
+        for pattern, config in text_patterns.items():
+            removed_count += self._process_text_pattern(soup, pattern, config)
+
+        self.logger.debug(f"불필요한 텍스트 패턴 제거: {removed_count}개")
+
+    def _process_text_pattern(
+        self, soup: BeautifulSoup, pattern_name: str, config: Dict[str, Any]
+    ) -> int:
+        """
+        특정 텍스트 패턴 처리 (문자열과 정규식 모두 지원)
+
+        Args:
+            soup: BeautifulSoup 객체
+            pattern_name: 패턴 이름
+            config: 처리 설정
+
+        Returns:
+            처리된 항목 수
+        """
+        removed_count = 0
+        pattern_type = config.get("type", "string")
+
+        if pattern_type == "string":
+            # 문자열 패턴 처리
+            pattern = pattern_name
+            tags_with_pattern = soup.find_all(
+                string=lambda text: text and pattern in text
+            )
+
+        elif pattern_type == "regex":
+            # 정규식 패턴 처리
+            pattern = config["pattern"]
+            compiled_pattern = re.compile(pattern)
+            tags_with_pattern = soup.find_all(
+                string=lambda text: text and compiled_pattern.search(text)
+            )
+
+        else:
+            self.logger.warning(f"지원하지 않는 패턴 타입: {pattern_type}")
+            return 0
+
+        for text_node in tags_with_pattern:
+            try:
+                parent_tag = text_node.parent
+                if not parent_tag:
+                    continue
+
+                # 태그의 전체 텍스트에서 패턴 확인
+                full_text = parent_tag.get_text(strip=True)
+
+                # 패턴 매칭 확인
+                if pattern_type == "string":
+                    is_exact_match = full_text == pattern
+                    has_pattern = pattern in full_text
+                else:  # regex
+                    is_exact_match = bool(compiled_pattern.fullmatch(full_text))
+                    has_pattern = bool(compiled_pattern.search(full_text))
+
+                if is_exact_match:
+                    # 패턴만 있는 경우: 태그 전체 제거
+                    if config["action"] == "remove_tag_if_only_text":
+                        parent_tag.decompose()
+                        removed_count += 1
+                        self.logger.debug(
+                            f"태그 제거: '{pattern_name}' - {parent_tag.name}"
+                        )
+
+                elif has_pattern:
+                    # 다른 텍스트와 함께 있는 경우: 패턴만 치환
+                    if config["fallback_action"] == "replace_with_empty":
+                        if pattern_type == "string":
+                            # 문자열 패턴 치환
+                            new_text = text_node.replace(pattern, "").strip()
+                        else:
+                            # 정규식 패턴 치환
+                            new_text = compiled_pattern.sub("", text_node).strip()
+
+                        if new_text:
+                            text_node.replace_with(new_text)
+                        else:
+                            # 빈 텍스트가 되면 제거
+                            text_node.extract()
+                        removed_count += 1
+                        self.logger.debug(f"텍스트 치환: '{pattern_name}' -> 빈 문자열")
+
+            except Exception as e:
+                # 예외 발생 시 로깅하고 계속 진행
+                self.logger.warning(f"텍스트 패턴 처리 중 오류: {e}")
+                continue
+
+        return removed_count
 
     def find_section1_tags(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """모든 SECTION-1 태그 찾기"""
