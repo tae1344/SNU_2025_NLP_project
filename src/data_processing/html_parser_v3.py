@@ -8,10 +8,8 @@ Version 3.0에서는 텍스트 기반 섹션 분류와 계층적 파싱을 지�
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Union, List, Dict, Any
-from io import StringIO
+from typing import Optional, Union, Dict, Any
 from bs4.element import ResultSet
-import pandas as pd
 from bs4 import BeautifulSoup
 
 
@@ -328,82 +326,6 @@ class HTMLParserV3:
                 continue
 
         return removed_count
-
-    def find_section1_tags(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """모든 SECTION-1 태그 찾기"""
-        section1_tags = []
-
-        # H2 태그의 SECTION-1 클래스 찾기
-        h2_sections = soup.find_all("h2", class_=lambda x: x and "SECTION-1" in x)
-
-        for i, tag in enumerate(h2_sections):
-            section1_tags.append(
-                {
-                    "tag": tag,
-                    "title": self._extract_clean_text(tag),
-                    "section_id": f"SECTION-1-{i + 1}",
-                    "index": i,
-                }
-            )
-
-        self.logger.info(f"총 {len(section1_tags)}개의 SECTION-1 태그 발견")
-        return section1_tags
-
-    def find_section_boundaries(
-        self, section1_tag, soup: BeautifulSoup
-    ) -> Dict[str, Any]:
-        """SECTION-1의 시작과 끝 경계 정의"""
-        start_tag = section1_tag
-        end_tag = self._find_next_section1_tag(section1_tag, soup)
-
-        return {
-            "start": start_tag,
-            "end": end_tag,
-            "content_range": self._get_content_between_tags(start_tag, end_tag),
-        }
-
-    def _find_next_section1_tag(
-        self, current_tag, soup: BeautifulSoup
-    ) -> Optional[Any]:
-        """다음 SECTION-1 태그 찾기"""
-        current = current_tag.next_sibling
-
-        while current:
-            if hasattr(current, "name") and current.name == "h2":
-                if current.get("class") and "SECTION-1" in " ".join(
-                    current.get("class", [])
-                ):
-                    return current
-            current = current.next_sibling
-
-        return None
-
-    def _get_content_between_tags(self, start_tag, end_tag) -> List[Any]:
-        """두 태그 사이의 콘텐츠 가져오기"""
-        content = []
-        current = start_tag.next_sibling
-
-        while current and current != end_tag:
-            content.append(current)
-            current = current.next_sibling
-
-        return content
-
-    def extract_clean_text(self, element) -> str:
-        """요소에서 깨끗한 텍스트 추출"""
-        if not element:
-            return ""
-
-        text = element.get_text(strip=True)
-        # HTML 태그 제거
-        text = re.sub(r"<[^>]+>", "", text)
-        # 공백 정리
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    def _extract_clean_text(self, element) -> str:
-        """내부용 텍스트 추출 메서드"""
-        return self.extract_clean_text(element)
 
     def extract_title(self, soup: BeautifulSoup) -> str:
         """HTML에서 제목 추출"""
