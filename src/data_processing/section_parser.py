@@ -272,10 +272,19 @@ class SectionParser:
         matches = re.finditer(pattern, content, re.MULTILINE | re.DOTALL)
 
         for match in matches:
+            body = match.group(2).strip()
+
+            # 제목 후보: 본문 첫 줄만 사용하고, 번호/콜론 제거
+            first_line = body.split("\n", 1)[0].strip()
+            # 앞쪽에 붙은 번호 패턴 제거 (예: "2.1", "1")
+            first_line = re.sub(r"^\d+(?:\.\d+)*\s*", "", first_line)
+            # 제목 끝의 콜론/전각콜론 제거
+            first_line = re.sub(r"[:：]\s*$", "", first_line)
+
             detailed_notes.append(
                 {
                     "note_number": int(match.group(1)),
-                    "title": match.group(2).strip(),
+                    "title": first_line,
                     "content": match.group(0).strip(),
                 }
             )
