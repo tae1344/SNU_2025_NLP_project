@@ -27,103 +27,232 @@
 
 ## DB 스키마 및 ERD
 
- ```mermaid
+```mermaid
 erDiagram
-  UNIT_LU {
-    TINYINT unit_id PK
-    VARCHAR unit_name
-    CHAR currency_code
-    INT scale
+  COMPANIES {
+    INTEGER company_id PK
+    TEXT    name_ko
+    TEXT    stock_code
+    TEXT    country_code
+  }
+
+  AUDITORS {
+    INTEGER auditor_id PK
+    TEXT    firm_name
+    TEXT    address
+    TEXT    city
+    TEXT    country_code
+  }
+
+  CONCEPTS {
+    INTEGER concept_id PK
+    TEXT    norm_name
+    TEXT    ifrs_code
+    TEXT    description
+  }
+
+  CONCEPT_ALIASES {
+    INTEGER alias_id PK
+    INTEGER concept_id FK
+    TEXT    alias_name
+  }
+
+  UNITS {
+    INTEGER unit_id PK
+    TEXT    label
+    TEXT    currency_code
+    INTEGER multiplier
   }
 
   REPORTS {
-    BIGINT report_id PK
-    VARCHAR company_kor
-    INT fiscal_year
-    VARCHAR fiscal_period
-    INT version
-    DATE opinion_date
-    VARCHAR source_file
-    CHAR source_hash
-    DATETIME extracted_at
-    VARCHAR parser_version
-    TIMESTAMP created_at
+    INTEGER report_id PK
+    INTEGER company_id FK
+    INTEGER fiscal_year
+    TEXT    period_start
+    TEXT    period_end
+    TEXT    audit_report_date
+    TEXT    currency_code
+    INTEGER presentation_unit_id FK
+    INTEGER is_consolidated
+    INTEGER auditor_id FK
+    TEXT    audit_opinion_code
+    TEXT    audit_opinion_excerpt
+    TEXT    emphasis_of_matter_excerpt
+    TEXT    source
+    TEXT    created_at
+    TEXT    updated_at
   }
 
-  SECTIONS {
-    BIGINT section_id PK
-    BIGINT report_id FK
-    VARCHAR section_type
-    VARCHAR title
-    TINYINT unit_id FK
-    TEXT raw_html
+  REPORT_FILES {
+    INTEGER file_id PK
+    INTEGER report_id FK
+    TEXT    src_path
+    TEXT    file_hash
+    INTEGER html_table_count
+    TEXT    encoding
+    TEXT    loaded_at
   }
 
-  TEXT_BLOCKS {
-    BIGINT text_id PK
-    BIGINT section_id FK
-    VARCHAR text_type
-    INT block_order
-    TEXT content
-    VARCHAR ref_note_no
+  ETL_LOGS {
+    INTEGER log_id PK
+    INTEGER report_id FK
+    TEXT    stage
+    TEXT    level
+    TEXT    message
+    TEXT    detail_json
+    TEXT    created_at
   }
 
-  TABLES_META {
-    BIGINT table_id PK
-    BIGINT section_id FK
-    VARCHAR caption
-    TINYINT unit_id FK
-    INT table_order
-    TINYINT has_multi_year
+  RAW_TABLES {
+    INTEGER raw_table_id PK
+    INTEGER report_id FK
+    INTEGER file_id FK
+    INTEGER table_index
+    TEXT    caption
+    TEXT    section_hint
+    INTEGER n_rows
+    INTEGER n_cols
+    INTEGER unit_id FK
+    TEXT    html
+    TEXT    text
   }
 
-  TABLE_ROWS {
-    BIGINT row_id PK
-    BIGINT table_id FK
-    INT row_order
-    VARCHAR account_kor
-    VARCHAR note_refs
-    TINYINT level
+  RAW_TABLE_CELLS {
+    INTEGER cell_id PK
+    INTEGER raw_table_id FK
+    INTEGER row_idx
+    INTEGER col_idx
+    INTEGER rowspan
+    INTEGER colspan
+    TEXT    text
   }
 
-  TABLE_VALUES {
-    BIGINT value_id PK
-    BIGINT row_id FK
-    TINYINT unit_id FK
-    INT fiscal_year
-    VARCHAR column_role
-    DECIMAL amount_decimal
-    DECIMAL normalized_krw
+  FINANCIAL_STATEMENTS {
+    INTEGER fs_id PK
+    INTEGER report_id FK
+    TEXT    statement_type
+    TEXT    title
+    INTEGER unit_id FK
+    INTEGER raw_title_table FK
+    INTEGER body_table FK
+  }
+
+  FINANCIAL_STATEMENT_LINES {
+    INTEGER line_id PK
+    INTEGER fs_id FK
+    INTEGER order_in_table
+    INTEGER indent_level
+    TEXT    raw_label
+    TEXT    note_refs
+    INTEGER concept_id FK
+    NUMERIC amount_current
+    NUMERIC amount_prior
+    INTEGER sign_current
+    INTEGER sign_prior
+    TEXT    raw_current_str
+    TEXT    raw_prior_str
+    INTEGER source_table_row
   }
 
   NOTES {
-    BIGINT note_id PK
-    BIGINT report_id FK
-    VARCHAR note_no
-    VARCHAR title
-    TEXT content
+    INTEGER note_id PK
+    INTEGER report_id FK
+    TEXT    note_no
+    TEXT    title
+    TEXT    body_text
   }
 
-  ROW_NOTE_MAP {
-    BIGINT row_id FK
-    BIGINT note_id FK
+  NOTE_LINKS {
+    INTEGER link_id PK
+    INTEGER line_id FK
+    INTEGER note_id FK
   }
 
-  TEXT_NOTE_MAP {
-    BIGINT text_id FK
-    BIGINT note_id FK
+  SECTIONS {
+    INTEGER section_id PK
+    INTEGER report_id FK
+    TEXT    section_type
+    TEXT    title
+    INTEGER order_in_doc
+    TEXT    text
   }
 
-  REPORTS ||--o{ SECTIONS : ""
-  REPORTS ||--o{ NOTES : ""
-  UNIT_LU ||--o{ SECTIONS : ""
-  UNIT_LU ||--o{ TABLES_META : ""
-  UNIT_LU ||--o{ TABLE_VALUES : ""
-  SECTIONS ||--o{ TEXT_BLOCKS : ""
-  SECTIONS ||--o{ TABLES_META : ""
-  TABLES_META ||--o{ TABLE_ROWS : ""
-  TABLE_ROWS ||--o{ TABLE_VALUES : ""
-  TABLE_ROWS ||--o{ ROW_NOTE_MAP : ""
-  NOTES ||--o{ ROW_NOTE_MAP : ""
-  TEXT_BLOCKS ||--o{ TEXT_NOTE_MAP : ""
-  NOTES ||--o{ TEXT_NOTE_MAP : ""
+  KAM_ITEMS {
+    INTEGER kam_id PK
+    INTEGER report_id FK
+    TEXT    title
+    TEXT    why_significant
+    TEXT    audit_response
+    TEXT    findings_summary
+  }
+
+  AUDIT_COMM_MEETINGS {
+    INTEGER meeting_id PK
+    INTEGER report_id FK
+    INTEGER seq_no
+    TEXT    meeting_date
+    TEXT    attendees
+    TEXT    mode
+    TEXT    topics
+  }
+
+  RISK_TERMS {
+    INTEGER term_id PK
+    TEXT    category
+    TEXT    term
+  }
+
+  RISK_HITS {
+    INTEGER hit_id PK
+    INTEGER report_id FK
+    INTEGER section_id FK
+    INTEGER raw_table_id FK
+    INTEGER term_id FK
+    TEXT    span_text
+    TEXT    context_text
+    INTEGER start_char
+    INTEGER end_char
+  }
+
+  SEARCH_DOCS {
+    INTEGER doc_id PK
+    INTEGER report_id FK
+    TEXT    source_type
+    INTEGER source_ref_id
+    TEXT    text
+  }
+
+  %% Relationships
+  COMPANIES ||--o{ REPORTS : "company_id"
+  AUDITORS  ||--o{ REPORTS : "auditor_id"
+  UNITS     ||--o{ REPORTS : "presentation_unit_id"
+
+  REPORTS   ||--o{ REPORT_FILES : "report_id"
+  REPORTS   ||--o{ ETL_LOGS     : "report_id"
+  REPORTS   ||--o{ RAW_TABLES   : "report_id"
+  REPORTS   ||--o{ FINANCIAL_STATEMENTS : "report_id"
+  REPORTS   ||--o{ NOTES        : "report_id"
+  REPORTS   ||--o{ SECTIONS     : "report_id"
+  REPORTS   ||--o{ KAM_ITEMS    : "report_id"
+  REPORTS   ||--o{ AUDIT_COMM_MEETINGS : "report_id"
+  REPORTS   ||--o{ RISK_HITS    : "report_id"
+  REPORTS   ||--o{ SEARCH_DOCS  : "report_id"
+
+  REPORT_FILES ||--o{ RAW_TABLES : "file_id"
+
+  RAW_TABLES ||--o{ RAW_TABLE_CELLS : "raw_table_id"
+  UNITS      ||--o{ RAW_TABLES      : "unit_id"
+
+  UNITS      ||--o{ FINANCIAL_STATEMENTS : "unit_id"
+  RAW_TABLES ||--o{ FINANCIAL_STATEMENTS : "raw_title_table / body_table"
+
+  FINANCIAL_STATEMENTS ||--o{ FINANCIAL_STATEMENT_LINES : "fs_id"
+  CONCEPTS             ||--o{ FINANCIAL_STATEMENT_LINES : "concept_id"
+
+  CONCEPTS        ||--o{ CONCEPT_ALIASES : "concept_id"
+  FINANCIAL_STATEMENT_LINES ||--o{ NOTE_LINKS : "line_id"
+  NOTES           ||--o{ NOTE_LINKS : "note_id"
+
+  SECTIONS  ||--o{ RISK_HITS : "section_id"
+  RAW_TABLES||--o{ RISK_HITS : "raw_table_id"
+  RISK_TERMS||--o{ RISK_HITS : "term_id"
