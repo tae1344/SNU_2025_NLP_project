@@ -12,6 +12,22 @@
 
 ---
 
+## 프로젝트 실행 방법
+
+#### 1. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. Run html parser
+```bash
+python src/audit_report_parser_v3.py
+```
+
+#### 3. Check processed data
+- data/processed 경로에 파싱, 전처리 된 2014 ~ 2024년도 json 파일
+---
+
 ## 기술 스택
 - **언어**: Python 3.13
 - **데이터 파싱**: BeautifulSoup4
