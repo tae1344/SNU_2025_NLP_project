@@ -29,7 +29,7 @@ python src/audit_report_parser_v3.py
 ---
 
 ## 기술 스택
-- **언어**: Python 3.13
+- **언어**: Python 3.13.5
 - **데이터 파싱**: BeautifulSoup4
 - **데이터베이스**: Neo4j (AuraDB Free / Community Edition)
 - **드라이버**: Neo4j Python Driver
