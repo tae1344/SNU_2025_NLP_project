@@ -1,29 +1,97 @@
-# 삼성전자 감사보고서 기반 금융 지식 그래프 구축  
+# 삼성전자 금융 지식그래프 프로젝트
 
-서울대학교 빅데이터 AI 핀테크 고급전문가 과정  
-자연어처리 프로젝트 · 11기 2조  
+## 프로젝트 개요
+본 프로젝트는 **삼성전자 주주**를 주요 타겟으로 하여,  
+2014년부터 2024년까지의 **11개년 감사보고서**를 바탕으로  
+**핵심 감사 및 재무 정보를 한눈에 확인할 수 있는 금융 지식그래프**를 구축하는 것을 목표로 합니다.
 
----
-
-## 📌 프로젝트 개요
-삼성전자 2014–2024년 감사보고서를 기반으로, 기업의 재무 구조 및 외부 금융기관과의 관계를 **금융 지식 그래프(Financial Knowledge Graph)** 로 구축합니다.  
-- 감사보고서의 표/텍스트 데이터 자동 파싱  
-- 회사, 사업부문, 재무항목, 금액 등 **엔티티 및 관계 추출**  
-- Neo4j 기반 지식 그래프 모델링 및 시각화  
-- 연도별 변화를 추적하는 **Temporal Graph 분석**  
+### 목적
+- 매년 감사보고서의 핵심 내용을 주주가 빠르게 이해할 수 있도록 **시각적이고 탐색 가능한 구조** 제공
+- 숫자 중심의 재무제표뿐만 아니라, **주석·사업부문·개념 관계**를 그래프 형태로 직관화
+- 장기적으로는 **금융 도메인 특화 QA/NLP 시스템**의 기반 데이터베이스로 활용 가능
 
 ---
 
-## 🛠 기술 스택
-- **데이터 처리:** Python, BeautifulSoup, lxml, pandas  
-- **NLP 모델:** Hugging Face Transformers (KLUE-BERT Fine-tuning), 규칙 기반 관계 추출  
-- **그래프 DB:** Neo4j (Cypher Query)  
-- **시각화:** NetworkX, pyvis, Gephi  
+## 프로젝트 실행 방법
+
+#### 1. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. Run html parser
+```bash
+python src/audit_report_parser_v3.py
+```
+
+#### 3. Check processed data
+- data/processed 경로에 파싱, 전처리 된 2014 ~ 2024년도 json 파일
+---
+
+## 기술 스택
+- **언어**: Python 3.13.5
+- **데이터 파싱**: BeautifulSoup4
+- **데이터베이스**: Neo4j (AuraDB Free / Community Edition)
+- **드라이버**: Neo4j Python Driver
+- **시각화**: Neo4j Browser, Neo4j Bloom
+- **버전 관리**: Git, GitHub
 
 ---
 
-## 삼성전자 감사보고서 기반 금융 지식 그래프 구축 및 분석 계획서
-[[서울대 AI] 자연어처리_1차 향후 계획서.pdf](https://github.com/user-attachments/files/22353211/AI._1.pdf)
+## 현재까지 진행 상황
+1. **원자료 확보**
+   - 삼성전자 2014–2024년 감사보고서 HTML 파일 (11개)
+2. **데이터 파싱 및 전처리**
+   - BeautifulSoup 기반 파서 작성
+   - 주요 섹션 텍스트 및 재무제표 표 단위 추출
+   - 텍스트 정규화, 단위 변환(백만원 → 원) 일부 적용
+3. **중간 산출물**
+   - JSON 포맷의 연도별 보고서 데이터
+
+---
+
+## 향후 추진 계획
+
+### 1. 그래프 데이터 모델링
+- **노드(labels)**: Company, Report(연도), Statement(재무제표), LineItem, Concept, Unit, Note
+- **관계(relationships)**:  
+  - `(Company)-[:HAS_REPORT]->(Report)`  
+  - `(Report)-[:HAS_STATEMENT]->(Statement)`  
+  - `(Statement)-[:HAS_LINE]->(LineItem)`  
+  - `(LineItem)-[:OF_CONCEPT]->(Concept)`  
+  - `(LineItem)-[:MEASURED_IN]->(Unit)`  
+  - `(Report)-[:HAS_NOTE]->(Note)`
+
+### 2. 데이터 적재
+- **Neo4j (AuraDB Free / Community Edition)** 사용
+- 파서 출력(JSON) → Python 드라이버로 **Upsert 적재**
+- **개념 매핑(concept_map.csv)** 정의 → 다양한 표현을 표준화된 Concept 키로 통일
+- **단위 관리(Unit 노드)** → 통일된 환산 스케일 적용
+
+### 3. 데모 구현
+- **주주 친화적 시나리오 질의**
+  1. **연도별 핵심 지표 추세**
+     - 영업이익, 당기순이익, 자산총계, 부채총계
+  2. **주석과 연결된 항목 확인**
+     - 예: “주석 21”이 설명하는 항목과 금액
+  3. **연도별 재무 구조 비교**
+     - 자산=부채+자본 평형 여부
+  4. **산업/경쟁사 비교 (옵션)**
+     - 동일 산업 내 주요 기업의 재무 지표 비교
+
+- **시각화**
+  - Neo4j Browser/Bloom 활용 → 보고서→재무제표→라인아이템 구조를 그래프로 표시
+  - 시계열 질의 결과를 표/차트 형태로 변환하여 제시
+
+---
+
+## 기대 효과
+- **주주 맞춤형 요약**: 11개년 주요 지표 및 감사 핵심사항을 빠르게 확인 가능  
+- **관계 기반 탐색**: 주석 ↔ 항목 ↔ 개념 관계를 직관적으로 탐색  
+- **시간 차원 비교**: 연도별 재무 데이터 추이를 그래프 질의로 분석  
+- **확장성**: 외부 산업·경쟁사 데이터와 연결해 맥락 있는 해석 제공  
+
+---
 
 ## DB 스키마 및 ERD
 
@@ -256,3 +324,4 @@ erDiagram
   SECTIONS  ||--o{ RISK_HITS : "section_id"
   RAW_TABLES||--o{ RISK_HITS : "raw_table_id"
   RISK_TERMS||--o{ RISK_HITS : "term_id"
+
