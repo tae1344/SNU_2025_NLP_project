@@ -128,8 +128,34 @@ class HTMLParserV3:
 
     def _remove_unnecessary_tags(self, soup: BeautifulSoup) -> None:
         """불필요한 태그 제거"""
+        # 기본 불필요한 태그들
         for tag in soup(["script", "style", "meta", "link"]):
             tag.decompose()
+
+        # span 태그 모두 제거 (내용은 보존)
+        self._remove_span_tags(soup)
+
+    def _remove_span_tags(self, soup: BeautifulSoup) -> None:
+        """
+        span 태그를 모두 제거하되 내용은 보존
+
+        <span>텍스트</span> → 텍스트
+        <span><strong>강조</strong></span> → <strong>강조</strong>
+        """
+        removed_count = 0
+
+        # 모든 span 태그를 찾아서 unwrap (태그만 제거, 내용은 보존)
+        for span in soup.find_all("span"):
+            try:
+                span.unwrap()  # 태그만 제거하고 내용은 부모에 병합
+                removed_count += 1
+            except Exception as e:
+                # unwrap이 실패하면 decompose로 완전 제거
+                self.logger.warning(f"span unwrap 실패, decompose로 대체: {e}")
+                span.decompose()
+                removed_count += 1
+
+        self.logger.debug(f"span 태그 제거: {removed_count}개")
 
     def _remove_empty_layout_tags(self, soup: BeautifulSoup) -> None:
         """
@@ -228,7 +254,7 @@ class HTMLParserV3:
             # 정규식 패턴
             "계속_패턴": {
                 "type": "regex",
-                "pattern": r"계속\s*[;:]",  # "계속;", "계속:", "계속 :", "계속 ;" 등
+                "pattern": r"(?:,\s*)?계속\s*[;:]",  # "계속;", "계속:", "계속 :", "계속 ;", ", 계속" 등
                 "action": "remove_tag_if_only_text",
                 "fallback_action": "replace_with_empty",
                 "description": "계속 관련 텍스트 패턴",
