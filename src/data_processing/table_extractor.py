@@ -93,7 +93,7 @@ class TableExtractor:
         Returns:
             테이블 정보가 담긴 딕셔너리 리스트
         """
-        soup = BeautifulSoup(section_content, "html.parser")
+        soup = BeautifulSoup(str(section_content), "html.parser")
         return self.extract_tables(soup)
 
     def _parse_table(self, table: Tag, index: int) -> Optional[Dict[str, Any]]:
@@ -124,6 +124,16 @@ class TableExtractor:
 
             # 테이블 데이터 정리
             table_records = df.to_dict("records")
+
+            # 테이블 숫자 데이터 처리
+            for record in table_records:
+                for k, v in record.items():
+                    record[k] = (
+                        self.text_cleaner.clean_table_text(v)
+                        if isinstance(v, str)
+                        else v
+                    )
+
             table_records = self._clean_nan_values(table_records)
 
             # 테이블 메타데이터 추출
