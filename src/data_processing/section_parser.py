@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from io import StringIO
 import pandas as pd
 from data_processing.text_cleaner import TextCleaner
+from data_processing.table_extractor import TableExtractor
 
 
 class SectionParser:
@@ -34,6 +35,7 @@ class SectionParser:
         """
         self.logger = self._setup_logger(log_level)
         self.text_cleaner = TextCleaner(log_level)
+        self.table_extractor = TableExtractor(log_level)
 
     def _setup_logger(self, log_level: str) -> logging.Logger:
         """로거 설정"""
@@ -268,24 +270,51 @@ class SectionParser:
         detailed_notes = []
 
         # 정규식으로 세부 주석 파싱
-        pattern = r"^(\d+)\.\s*(.+?)(?=\n\d+\.|\Z)"
-        matches = re.finditer(pattern, content, re.MULTILINE | re.DOTALL)
+        block_pat = re.compile(
+            r"^(\d+(?:\.\d+)*)\.\s*(.+?)(?=(?:\n(?=\d+(?:\.\d+)*\.))|\Z)", re.M | re.S
+        )
+        content_tail_pat = re.compile(r"(?:,\s*)?계속\s*[;:]\s*$")
 
-        for match in matches:
+        for match in block_pat.finditer(content):
+            num = match.group(1)
             body = match.group(2).strip()
+            first_line, rest = (body.split("\n", 1) + [""])[:2]
 
-            # 제목 후보: 본문 첫 줄만 사용하고, 번호/콜론 제거
-            first_line = body.split("\n", 1)[0].strip()
-            # 앞쪽에 붙은 번호 패턴 제거 (예: "2.1", "1")
-            first_line = re.sub(r"^\d+(?:\.\d+)*\s*", "", first_line)
-            # 제목 끝의 콜론/전각콜론 제거
-            first_line = re.sub(r"[:：]\s*$", "", first_line)
+            # 제목 후보 분리
+            parts = re.split(r"\s*[:;]\s*", first_line, 1)
+            if len(parts) == 2:
+                title, first_line_rest = parts[0].strip(), parts[1].strip()
+            else:
+                title, first_line_rest = first_line.strip(), ""
+
+            # 제목 정리
+            title = re.sub(r"^\d+(?:\.\d+)*\s*", "", title)
+            title = re.sub(r"[:;]\s*$", "", title)
+            title = content_tail_pat.sub("", title)
+
+            # 본문(content) 구성 - 중복 방지 로직
+            if first_line_rest:
+                # 콜론으로 분리된 경우: 제목 이후 텍스트부터 시작
+                if rest.lstrip().startswith(first_line_rest):
+                    content = rest.strip()
+                else:
+                    content = (first_line_rest + ("\n" + rest if rest else "")).strip()
+            else:
+                # 콜론이 없으면 첫 줄(제목)은 본문에서 제외
+                content = rest.strip() if rest else ""
+
+            # content가 title로 다시 시작하는 경우 방지
+            if content.startswith(title):
+                after = content[len(title) :].lstrip()
+                # 제목 뒤 콜론/세미콜론/공백 제거
+                after = re.sub(r"^\s*[:;]\s*", "", after)
+                content = after
 
             detailed_notes.append(
                 {
-                    "note_number": int(match.group(1)),
-                    "title": first_line,
-                    "content": match.group(0).strip(),
+                    "note_number": int(num.split(".")[0]),
+                    "title": title,
+                    "content": content,
                 }
             )
 
@@ -320,124 +349,15 @@ class SectionParser:
         self, section_tag, soup: BeautifulSoup
     ) -> List[Dict[str, Any]]:
         """섹션 내의 테이블들 추출"""
-        tables = []
+        parts = []
         current = section_tag.next_sibling
-        table_index = 0
-
         while current:
-            if current.name == "table":
-                table_data = self._parse_table_with_notes_reference(
-                    current, table_index
-                )
-                if table_data:
-                    tables.append(table_data)
-                    table_index += 1
-            elif self._is_section_tag(current):
+            if self._is_section_tag(current):  # 다음 섹션 시작이면 종료
                 break
-
+            parts.append(str(current))  # fragment 누적
             current = current.next_sibling
-
-        return tables
-
-    def _parse_table_with_notes_reference(
-        self, table_tag, index: int
-    ) -> Optional[Dict[str, Any]]:
-        """테이블 파싱 및 주석 참조 처리"""
-        try:
-            # pandas로 테이블 파싱
-            df = pd.read_html(StringIO(str(table_tag)), flavor="html5lib")[0]
-
-            # NaN 값 처리
-            df = df.where(pd.notnull(df), None)
-
-            # 컬럼명 정리 (MultiIndex 처리)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [
-                    str(col) if isinstance(col, tuple) else col for col in df.columns
-                ]
-
-            # 주석 컬럼 처리
-            processed_df = self._process_notes_columns(df)
-
-            # 테이블 데이터 정리
-            table_records = processed_df.to_dict("records")
-
-            for record in table_records:
-                for k, v in record.items():
-                    record[k] = (
-                        self.text_cleaner.clean_table_text(v)
-                        if isinstance(v, str)
-                        else v
-                    )
-
-            table_records = self._clean_nan_values(table_records)
-
-            return {
-                "index": index,
-                "data": table_records,
-                "columns": [str(col) for col in processed_df.columns.tolist()],
-                "shape": processed_df.shape,
-                "has_notes_references": self._has_notes_references(processed_df),
-            }
-        except Exception as e:
-            self.logger.warning(f"테이블 {index} 파싱 실패: {e}")
-            return None
-
-    def _process_notes_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """테이블의 주석 컬럼에서 comma 구분 숫자값을 주석 번호 참조로 처리"""
-        processed_df = df.copy()
-
-        for col in processed_df.columns:
-            if "주석" in str(col):
-                processed_df[col] = processed_df[col].apply(
-                    self._process_notes_reference
-                )
-
-        return processed_df
-
-    def _process_notes_reference(self, value) -> Optional[Dict[str, Any]]:
-        """주석 참조 값 처리 (comma 구분 숫자 -> 주석 번호 참조)"""
-        if pd.isna(value) or value is None:
-            return None
-
-        value_str = str(value).strip()
-
-        # comma로 구분된 숫자 패턴 확인
-        if re.match(r"^\d+(?:,\s*\d+)*$", value_str):
-            # comma로 구분된 숫자들을 리스트로 변환
-            note_numbers = [int(x.strip()) for x in value_str.split(",")]
-            return {
-                "type": "notes_reference",
-                "note_numbers": note_numbers,
-                "original_value": value_str,
-                "reference_count": len(note_numbers),
-            }
-        else:
-            # 일반 텍스트는 그대로 반환
-            return {"type": "text", "value": value_str}
-
-    def _has_notes_references(self, df: pd.DataFrame) -> bool:
-        """테이블에 주석 참조가 있는지 확인"""
-        for col in df.columns:
-            if "주석" in str(col):
-                for value in df[col]:
-                    if (
-                        isinstance(value, dict)
-                        and value.get("type") == "notes_reference"
-                    ):
-                        return True
-        return False
-
-    def _clean_nan_values(self, obj):
-        """중첩된 데이터 구조에서 NaN 값 정리"""
-        if isinstance(obj, dict):
-            return {k: self._clean_nan_values(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._clean_nan_values(item) for item in obj]
-        elif pd.isna(obj) or (isinstance(obj, float) and str(obj).lower() == "nan"):
-            return None
-        else:
-            return obj
+        html_fragment = "".join(parts)
+        return self.table_extractor.extract_tables_from_section(html_fragment)
 
     def _extract_clean_text(self, element) -> str:
         """요소에서 깨끗한 텍스트 추출"""
