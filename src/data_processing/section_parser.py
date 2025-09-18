@@ -270,24 +270,51 @@ class SectionParser:
         detailed_notes = []
 
         # 정규식으로 세부 주석 파싱
-        pattern = r"^(\d+)\.\s*(.+?)(?=\n\d+\.|\Z)"
-        matches = re.finditer(pattern, content, re.MULTILINE | re.DOTALL)
+        block_pat = re.compile(
+            r"^(\d+(?:\.\d+)*)\.\s*(.+?)(?=(?:\n(?=\d+(?:\.\d+)*\.))|\Z)", re.M | re.S
+        )
+        content_tail_pat = re.compile(r"(?:,\s*)?계속\s*[;:]\s*$")
 
-        for match in matches:
+        for match in block_pat.finditer(content):
+            num = match.group(1)
             body = match.group(2).strip()
+            first_line, rest = (body.split("\n", 1) + [""])[:2]
 
-            # 제목 후보: 본문 첫 줄만 사용하고, 번호/콜론 제거
-            first_line = body.split("\n", 1)[0].strip()
-            # 앞쪽에 붙은 번호 패턴 제거 (예: "2.1", "1")
-            first_line = re.sub(r"^\d+(?:\.\d+)*\s*", "", first_line)
-            # 제목 끝의 콜론/전각콜론 제거
-            first_line = re.sub(r"[:：]\s*$", "", first_line)
+            # 제목 후보 분리
+            parts = re.split(r"\s*[:;]\s*", first_line, 1)
+            if len(parts) == 2:
+                title, first_line_rest = parts[0].strip(), parts[1].strip()
+            else:
+                title, first_line_rest = first_line.strip(), ""
+
+            # 제목 정리
+            title = re.sub(r"^\d+(?:\.\d+)*\s*", "", title)
+            title = re.sub(r"[:;]\s*$", "", title)
+            title = content_tail_pat.sub("", title)
+
+            # 본문(content) 구성 - 중복 방지 로직
+            if first_line_rest:
+                # 콜론으로 분리된 경우: 제목 이후 텍스트부터 시작
+                if rest.lstrip().startswith(first_line_rest):
+                    content = rest.strip()
+                else:
+                    content = (first_line_rest + ("\n" + rest if rest else "")).strip()
+            else:
+                # 콜론이 없으면 첫 줄(제목)은 본문에서 제외
+                content = rest.strip() if rest else ""
+
+            # content가 title로 다시 시작하는 경우 방지
+            if content.startswith(title):
+                after = content[len(title) :].lstrip()
+                # 제목 뒤 콜론/세미콜론/공백 제거
+                after = re.sub(r"^\s*[:;]\s*", "", after)
+                content = after
 
             detailed_notes.append(
                 {
-                    "note_number": int(match.group(1)),
-                    "title": first_line,
-                    "content": match.group(0).strip(),
+                    "note_number": int(num.split(".")[0]),
+                    "title": title,
+                    "content": content,
                 }
             )
 
