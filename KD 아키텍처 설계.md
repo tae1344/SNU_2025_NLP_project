@@ -396,9 +396,15 @@ COMPETITOR_RELATIONS {
 
 **제안한 구조:**
 ```mermaid
-삼성전자 --has_subsidiary--> 삼성디스플레이
-삼성전자 --has_subsidiary--> 삼성SDI
-삼성전자 --has_subsidiary--> 기타자회사
+graph LR
+    Samsung[삼성전자]
+    Display[삼성디스플레이]
+    SDI[삼성SDI]
+    Other[기타자회사]
+
+    Samsung -- has_subsidiary --> Display
+    Samsung -- has_subsidiary --> SDI
+    Samsung -- has_subsidiary --> Other
 ```
 
 #### C. **재무제표 구조 표현**
