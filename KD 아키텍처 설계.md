@@ -9,23 +9,26 @@ graph TB
     
     %% 자회사 관계
     Samsung --> |has_subsidiary| Display[삼성디스플레이<br/>Samsung Display]
-    Samsung --> |has_subsidiary| SDI[🔋 삼성SDI<br/>Samsung SDI]
-    Samsung --> |has_subsidiary| Other[🏭 기타 자회사<br/>Other Subsidiaries]
+    Samsung --> |has_subsidiary| SDI[삼성SDI<br/>Samsung SDI]
+    Samsung --> |has_subsidiary| Other[기타 자회사<br/>Other Subsidiaries]
     
     %% 재무제표 섹션
-    Samsung --> |has_financial_statement| BS[📊 재무상태표<br/>Balance Sheet]
-    Samsung --> |has_financial_statement| PL[📈 손익계산서<br/>Income Statement]
-    Samsung --> |has_financial_statement| CF[💰 현금흐름표<br/>Cash Flow Statement]
-    Samsung --> |has_financial_statement| EQ[📋 자본변동표<br/>Equity Statement]
+    Samsung --> |has_financial_statement| BS[재무상태표<br/>Balance Sheet]
+    Samsung --> |has_financial_statement| PL[손익계산서<br/>Income Statement]
+    Samsung --> |has_financial_statement| CF[현금흐름표<br/>Cash Flow Statement]
+    Samsung --> |has_financial_statement| EQ[자본변동표<br/>Equity Statement]
     
     %% 감사 정보
-    Samsung --> |audited_by| Auditor[👨‍감사사<br/>Auditor]
-    Samsung --> |has_audit_info| KAM[⚠️ 핵심감사사항<br/>Key Audit Matters]
-    Samsung --> |has_audit_info| Opinion[📝 감사의견<br/>Audit Opinion]
+    Samsung --> |audited_by| Auditor[‍감사사<br/>Auditor]
+    Samsung --> |has_audit_info| KAM[핵심감사사항<br/>Key Audit Matters]
+    Samsung --> |has_audit_info| Opinion[감사의견<br/>Audit Opinion]
+    
+    %% 주석(Notes)
+    Samsung --> |has_notes| Notes[주석(Notes)]
     
     %% 년도별 노드
-    BS --> |has_year_data| Year2014[📅 2014년]
-    BS --> |has_year_data| Year2015[📅 2015년]
+    BS --> |has_year_data| Year2014[2014년]
+    BS --> |has_year_data| Year2015[2015년]
     BS --> |has_year_data| Year2024[2024년]
     
     PL --> |has_year_data| Year2014
@@ -35,7 +38,11 @@ graph TB
     %% 실제 데이터
     Year2014 --> |contains| Data2014[2014년 재무데이터]
     Year2015 --> |contains| Data2015[2015년 재무데이터]
-    Year2024 --> |contains| Data2024[📊 2024년 재무데이터]
+    Year2024 --> |contains| Data2024[2024년 재무데이터]
+    
+    %% 년도별 주석 연결 예시
+    Year2024 --> |has_note| Note2024[주석(요약/카테고리/키워드)]
+    Notes --> Note2024
 ```
 
 ### 2. **세부 노드 구조**
@@ -43,26 +50,30 @@ graph TB
 ```mermaid
 graph TD
     %% 재무상태표 세부 구조
-    BS[📊 재무상태표] --> |contains| Assets[💎 자산<br/>Assets]
+    BS[재무상태표] --> |contains| Assets[자산<br/>Assets]
     BS --> |contains| Liabilities[부채<br/>Liabilities]
-    BS --> |contains| Equity[🏛️ 자본<br/>Equity]
+    BS --> |contains| Equity[자본<br/>Equity]
     
-    Assets --> |subcategory| CurrentAssets[💵 유동자산]
-    Assets --> |subcategory| FixedAssets[🏭 유형자산]
+    Assets --> |subcategory| CurrentAssets[유동자산]
+    Assets --> |subcategory| FixedAssets[유형자산]
     Assets --> |subcategory| IntangibleAssets[무형자산]
     
     %% 손익계산서 세부 구조
-    PL[📈 손익계산서] --> |contains| Revenue[수익<br/>Revenue]
-    PL --> |contains| Expenses[💸 비용<br/>Expenses]
+    PL[손익계산서] --> |contains| Revenue[수익<br/>Revenue]
+    PL --> |contains| Expenses[비용<br/>Expenses]
     PL --> |contains| Profit[이익<br/>Profit]
     
-    Revenue --> |subcategory| Sales[🛒 매출액]
+    Revenue --> |subcategory| Sales[매출액]
     Revenue --> |subcategory| OtherIncome[기타수익]
     
     %% 현금흐름표 세부 구조
-    CF[💰 현금흐름표] --> |contains| Operating[⚙️ 영업활동]
-    CF --> |contains| Investing[📈 투자활동]
-    CF --> |contains| Financing[🏦 재무활동]
+    CF[현금흐름표] --> |contains| Operating[영업활동]
+    CF --> |contains| Investing[투자활동]
+    CF --> |contains| Financing[재무활동]
+
+    %% 주석 연결 예시 (FS 라인 → 주석)
+    NoteSales[주석: 매출 인식 정책]
+    Sales[매출액] --> |links_to_note| NoteSales
 ```
 
 ### 3. **시계열 분석 구조**
@@ -238,6 +249,97 @@ Layer 5: 실제 재무 데이터
     ├── 섹션별 필터
     └── 고급 검색
 ```
+
+
+### 8. **주석(Notes) 통합 설계**
+
+#### 8.1 노드/관계 타입 확장
+
+```python
+# 노드 타입 (추가)
+NODE_TYPES.update({
+    "NOTE": "note",                 # 주석 본문(번호/제목/본문/유형/연도)
+    "NOTE_CATEGORY": "note_category" # 주석 유형(회계정책/재무상태/손익계산/…)
+})
+
+# 관계 타입 (추가)
+RELATIONSHIP_TYPES.update({
+    "HAS_NOTE": "has_note",                 # 회사/년도/섹션 → 주석
+    "HAS_NOTE_CATEGORY": "has_note_category", # 주석 → 주석유형
+    "LINKS_TO_NOTE": "links_to_note"        # 재무제표 라인 → 주석(참조링크)
+})
+```
+
+#### 8.2 데이터 모델 필드 권장 스키마
+
+```json
+{
+  "note_id": "SHA1(company|year|note_no)",
+  "company_id": "삼성전자",
+  "fiscal_year": 2024,
+  "note_no": 2,
+  "title": "중요한 회계처리방침",
+  "body_text": "…",
+  "category": "회계정책",
+  "subcategory": "기준|변경|추정|기타",
+  "confidence": 0.28
+}
+```
+
+주요 소스
+- processed JSON: `sections[].title == "주석"`의 `content`에서 번호별 블록 추출
+- 분류: `src/note_classifier.py`의 키워드 기반 카테고리/서브카테고리 매핑 결과 사용
+- 링크: 재무표 테이블의 `"주석": { type: "notes_reference", note_numbers: [...] }`
+
+#### 8.3 ETL 매핑
+
+1) 노드 생성
+- NOTE: 연도별로 추출된 각 `note_no` → `NOTE` 노드 생성
+- NOTE_CATEGORY: 사전 정의된 카테고리(회계정책/재무상태/손익계산/현금흐름/자본변동/관련자거래/우발부채/사업부문/리스크관리/감사정보/기타)
+
+2) 관계 생성
+- 회사(or YEAR_NODE) —HAS_NOTE→ NOTE
+- NOTE —HAS_NOTE_CATEGORY→ NOTE_CATEGORY
+- FS_LINE —LINKS_TO_NOTE→ NOTE  (표의 주석번호 참조 기반)
+
+3) 키 구성
+- `note_id = sha1(company|year|note_no)`로 연도별 안정적 식별자 부여
+- FS_LINE과 NOTE 연결 시 `(year, note_no)` 조합으로 매칭
+
+#### 8.4 시각화 구조
+
+```mermaid
+graph TB
+    Samsung[삼성전자]
+    Year2024[2024년]
+    Notes[주석(Notes)]
+    Note2[주석 2: 중요한 회계처리방침]
+    CatAcc[카테고리: 회계정책]
+    FSLine[FS Line: 현금및현금성자산]
+
+    Samsung --> Year2024
+    Year2024 -->|has_note| Notes
+    Notes --> Note2
+    Note2 -->|has_note_category| CatAcc
+    FSLine -->|links_to_note| Note2
+```
+
+상호작용 UX
+- 년도 노드 클릭 → 해당 연도 `NOTE` 목록 팝업 (카테고리 필터 제공)
+- 주석 노드 클릭 → 본문/요약/키워드/연결된 재무라인(역링크) 표시
+- 재무라인 노드에서 연결된 주석 빠른 점프 제공
+
+#### 8.5 분석 활용
+- 카테고리/연도별 주석 분포 트렌드
+- 주석-재무라인 연결망 중심성(어떤 주석이 다수 라인과 연결되는가)
+- 회계정책 변경/추정 관련 주석의 연도별 변화 탐지
+- 리스크/우발부채 관련 주석의 키워드 추세
+
+#### 8.6 품질/운영 고려사항
+- 정규식 추출 한계 보완: 표/리스트/콜론 누락 케이스 처리 규칙 추가
+- 동의어/표기변형 사전 확장으로 분류 정밀도 향상
+- `confidence` 임계값으로 낮은 신뢰 결과 표기 구분(예: "감지됨(낮음)")
+- 재처리 안정성: `note_id` 해시 기반으로 idempotent 보장
 
 
 # 기존 스키마랑 비교
