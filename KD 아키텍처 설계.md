@@ -19,12 +19,12 @@ graph TB
     Samsung --> |has_financial_statement| EQ[자본변동표<br/>Equity Statement]
     
     %% 감사 정보
-    Samsung --> |audited_by| Auditor[‍감사사<br/>Auditor]
+    Samsung --> |audited_by| Auditor[감사사<br/>Auditor]
     Samsung --> |has_audit_info| KAM[핵심감사사항<br/>Key Audit Matters]
     Samsung --> |has_audit_info| Opinion[감사의견<br/>Audit Opinion]
     
     %% 주석(Notes)
-    Samsung --> |has_notes| Notes[주석(Notes)]
+    Samsung --> |has_notes| Notes[주석·Notes]
     
     %% 년도별 노드
     BS --> |has_year_data| Year2014[2014년]
@@ -41,7 +41,7 @@ graph TB
     Year2024 --> |contains| Data2024[2024년 재무데이터]
     
     %% 년도별 주석 연결 예시
-    Year2024 --> |has_note| Note2024[주석(요약/카테고리/키워드)]
+    Year2024 --> |has_note| Note2024[주석 요약/카테고리/키워드]
     Notes --> Note2024
 ```
 
@@ -312,7 +312,7 @@ RELATIONSHIP_TYPES.update({
 graph TB
     Samsung[삼성전자]
     Year2024[2024년]
-    Notes[주석(Notes)]
+    Notes[주석·Notes]
     Note2[주석 2: 중요한 회계처리방침]
     CatAcc[카테고리: 회계정책]
     FSLine[FS Line: 현금및현금성자산]
