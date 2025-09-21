@@ -43,6 +43,11 @@ RELATIONSHIP_TYPES: Final[Dict[str, str]] = {
     "TREND_TO": "trend_to",
     "RELATED_TO": "related_to",
     "MAPPED_TO": "mapped_to",
+    # Financial relationship types for inter-company transactions
+    "INVESTS_IN": "invests_in",  # Investment relationships with amounts
+    "TRADES_WITH": "trades_with",  # Sales/purchase transactions
+    "OWES_TO": "owes_to",  # Debt/credit relationships
+    "GUARANTEES_FOR": "guarantees_for",  # Guarantee/collateral relationships
 }
 
 
@@ -74,6 +79,18 @@ PROPS: Final[Dict[str, str]] = {
     "audit_opinion": "audit_opinion",
     "audit_date": "audit_date",
     "auditor_name": "auditor_name",
+    # Financial relationship properties (for relationships between companies)
+    "transaction_type": "transaction_type",  # investment, trade, debt, guarantee
+    "amount_current": "amount_current",  # 당기말 금액
+    "amount_previous": "amount_previous",  # 전기말 금액
+    "transaction_direction": "transaction_direction",  # inbound/outbound
+    "reporting_year": "reporting_year",  # 보고 연도
+    "guarantee_type": "guarantee_type",  # 보증 유형
+    "guarantee_limit": "guarantee_limit",  # 보증 한도
+    "collateral_type": "collateral_type",  # 담보 유형
+    "interest_rate": "interest_rate",  # 이자율
+    "maturity_date": "maturity_date",  # 만기일
+    "transaction_details": "transaction_details",  # JSON 형태의 상세 정보
 }
 
 
