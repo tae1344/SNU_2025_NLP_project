@@ -28,7 +28,12 @@ LOOKUP_INDEXES: dict[str, list[tuple[str, str]]] = {
     # Core entity indexes
     "company": [("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})")],
     "subsidiary": [
-        ("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})")
+        ("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("company_type", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        (
+            "ownership_percentage",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
     ],
     # Financial statement structure indexes
     "financial_statement": [
