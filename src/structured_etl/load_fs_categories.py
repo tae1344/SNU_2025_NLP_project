@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+"""Load FS_CATEGORY hierarchy and HAS_CATEGORY relationships.
+
+Extracts financial statement category hierarchy from processed JSON tables
+and creates nested category structures for BS/PL/CI/CF/EQ sections.
+"""
+
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Set, Tuple
+
+from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
+from .id_utils import build_company_id, build_fs_section_id, build_category_id
+from .etl_config import ETLConfig, extract_company_info_from_data
+
+
+def extract_category_hierarchy(
+    table_data: List[Dict[str, Any]], section_code: str
+) -> List[Dict[str, Any]]:
+    """Extract category hierarchy from a financial statement table.
+
+    Args:
+        table_data: Table data from processed JSON
+        section_code: BS/PL/CI/CF/EQ section code
+
+    Returns:
+        List of category info dicts with hierarchy paths
+    """
+    categories = []
+
+    for row in table_data:
+        category_name = row.get("과 목", "").strip()
+        if not category_name or category_name in ["과 목", ""]:
+            continue
+
+        # Determine hierarchy level based on formatting patterns
+        level = determine_hierarchy_level(category_name, section_code)
+
+        # Clean category name
+        clean_name = clean_category_name(category_name)
+
+        # Build category path for deterministic ID
+        category_path = build_category_path(clean_name, level, section_code)
+
+        categories.append(
+            {
+                "name": clean_name,
+                "original_name": category_name,
+                "level": level,
+                "path": category_path,
+                "section_code": section_code,
+                "has_notes": bool(row.get("주석")),
+                "note_references": (
+                    row.get("주석", {}).get("note_numbers", [])
+                    if isinstance(row.get("주석"), dict)
+                    else []
+                ),
+            }
+        )
+
+    return categories
+
+
+def determine_hierarchy_level(category_name: str, section_code: str) -> int:
+    """Determine hierarchy level based on category name patterns."""
+    name = category_name.strip()
+
+    # Level 1: Top-level section headers (자산, 부채, 자본, etc.)
+    top_level_patterns = [
+        "자 산",
+        "부 채",
+        "자 본",
+        "자본",
+        "매 출",
+        "영업이익",
+        "당기순이익",
+        "영업활동",
+        "투자활동",
+        "재무활동",
+        "포괄손익",
+        "총포괄손익",
+    ]
+
+    # Check if it's a standalone top-level category (no numbering)
+    name_clean = name.lower().replace(" ", "")
+    for pattern in top_level_patterns:
+        pattern_clean = pattern.replace(" ", "")
+        if pattern_clean in name_clean and not any(
+            prefix in name for prefix in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "1.", "2.", "가.", "나."]
+        ):
+            return 1
+
+    # Level 2: Roman numerals indicate major sections
+    if any(
+        roman in name
+        for roman in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ.", "Ⅷ.", "Ⅸ.", "Ⅹ."]
+    ):
+        return 2
+
+    # Level 3: Numbers indicate subsections
+    if any(
+        name.startswith(f"{i}. ") for i in range(1, 50)
+    ):  # Extended range for more items
+        return 3
+
+    # Level 4: Korean letters indicate sub-subsections
+    if any(name.startswith(f"{letter}. ") for letter in "가나다라마바사아자차카타파하"):
+        return 4
+
+    # Level 5: Detailed sub-items (often indented or have specific patterns)
+    if any(pattern in name for pattern in ["후속적으로", "전기이월", "미처분"]):
+        return 5
+
+    # Default level for unmatched items
+    return 3
+
+
+def clean_category_name(name: str) -> str:
+    """Clean category name by removing formatting characters."""
+    # Remove Roman numerals and numbers
+    cleaned = name
+    for roman in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ."]:
+        cleaned = cleaned.replace(roman, "").strip()
+
+    # Remove number prefixes
+    for i in range(1, 20):
+        cleaned = cleaned.replace(f"{i}. ", "").strip()
+
+    # Remove letter prefixes
+    for letter in "가나다라마바사아자차카타파하":
+        cleaned = cleaned.replace(f"{letter}. ", "").strip()
+
+    # Clean up spacing
+    cleaned = " ".join(cleaned.split())
+
+    return cleaned
+
+
+def build_category_path(name: str, level: int, section_code: str) -> str:
+    """Build hierarchical path for category."""
+    # For now, use simple path structure
+    # In production, this would maintain parent-child relationships
+    return f"{section_code}>{name}"
+
+
+def load_fs_category_nodes(
+    session, processed_files: List[Path], config: ETLConfig
+) -> None:
+    """Load FS_CATEGORY nodes and HAS_CATEGORY relationships with deduplication.
+
+    Args:
+        session: Neo4j session
+        processed_files: List of processed JSON file paths
+        config: ETL configuration
+    """
+    company_name = config.company_name
+    company_id = build_company_id(company_name)
+
+    all_categories: Dict[Tuple[str, str], Dict[str, Any]] = (
+        {}
+    )  # (section_code, name) -> category_info
+
+    # Process all files to collect categories
+    for file_path in processed_files:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Extract categories from each section
+        sections = data.get("sections", [])
+        for section in sections:
+            tables = section.get("tables", [])
+
+            for table in tables:
+                if not table.get("metadata", {}).get("is_financial_table", False):
+                    continue
+
+                table_data = table.get("data", [])
+                if not table_data or "과 목" not in table_data[0]:
+                    continue
+
+                # Determine section type from table structure
+                section_code = determine_section_from_table(table_data)
+                if not section_code:
+                    continue
+
+                categories = extract_category_hierarchy(table_data, section_code)
+
+                for category in categories:
+                    key = (category["section_code"], category["name"])
+
+                    # Deduplicate: keep the one with more information
+                    if key not in all_categories:
+                        all_categories[key] = category
+                    else:
+                        existing = all_categories[key]
+                        # Prefer categories with notes or higher level (more important)
+                        if (
+                            category.get("has_notes", False)
+                            and not existing.get("has_notes", False)
+                        ) or (category.get("level", 3) < existing.get("level", 3)):
+                            all_categories[key] = category
+
+    print(
+        f"Extracted {len(all_categories)} unique FS categories from {len(processed_files)} files"
+    )
+
+    # Group by section for statistics
+    section_stats = {}
+    for (section_code, name), category in all_categories.items():
+        if section_code not in section_stats:
+            section_stats[section_code] = {"count": 0, "with_notes": 0}
+        section_stats[section_code]["count"] += 1
+        if category.get("has_notes", False):
+            section_stats[section_code]["with_notes"] += 1
+
+    for section_code, stats in section_stats.items():
+        notes_pct = (
+            (stats["with_notes"] / stats["count"] * 100) if stats["count"] > 0 else 0
+        )
+        print(
+            f"  - {section_code}: {stats['count']} categories ({stats['with_notes']} with notes, {notes_pct:.1f}%)"
+        )
+
+    # Create FS_CATEGORY nodes and relationships
+    created_count = 0
+    for (section_code, category_name), category in all_categories.items():
+        category_path = category["path"]
+        category_id = build_category_id(company_name, section_code, category_path)
+        fs_section_id = build_fs_section_id(company_name, section_code)
+
+        # Create FS_CATEGORY node with enhanced properties
+        session.run(
+            f"""
+            MERGE (cat:{NODE_TYPES['FS_CATEGORY']} {{ {PROPS['id']}: $category_id }})
+            ON CREATE SET 
+                cat.{PROPS['name']} = $name,
+                cat.{PROPS['category_path']} = $path,
+                cat.{PROPS['section_code']} = $section_code,
+                cat.{PROPS['company']} = $company_name,
+                cat.hierarchy_level = $level,
+                cat.has_notes = $has_notes,
+                cat.original_name = $original_name
+            ON MATCH SET
+                cat.{PROPS['name']} = coalesce(cat.{PROPS['name']}, $name),
+                cat.{PROPS['category_path']} = coalesce(cat.{PROPS['category_path']}, $path),
+                cat.{PROPS['section_code']} = coalesce(cat.{PROPS['section_code']}, $section_code),
+                cat.{PROPS['company']} = coalesce(cat.{PROPS['company']}, $company_name),
+                cat.hierarchy_level = coalesce(cat.hierarchy_level, $level),
+                cat.has_notes = coalesce(cat.has_notes, $has_notes),
+                cat.original_name = coalesce(cat.original_name, $original_name)
+            """,
+            {
+                "category_id": category_id,
+                "name": category_name,
+                "path": category_path,
+                "section_code": section_code,
+                "company_name": company_name,
+                "level": category.get("level", 3),
+                "has_notes": category.get("has_notes", False),
+                "original_name": category.get("original_name", category_name),
+            },
+        )
+
+        # Create HAS_CATEGORY relationship from FS_SECTION to FS_CATEGORY
+        session.run(
+            f"""
+            MATCH (fs:{NODE_TYPES['FS_SECTION']} {{ {PROPS['id']}: $fs_section_id }})
+            MATCH (cat:{NODE_TYPES['FS_CATEGORY']} {{ {PROPS['id']}: $category_id }})
+            MERGE (fs)-[r:{RELATIONSHIP_TYPES['HAS_CATEGORY']}]->(cat)
+            ON CREATE SET r.has_notes = $has_notes
+            """,
+            {
+                "fs_section_id": fs_section_id,
+                "category_id": category_id,
+                "has_notes": category.get("has_notes", False),
+            },
+        )
+
+        created_count += 1
+
+    print(f"✅ Created/updated {created_count} FS category nodes and relationships")
+
+
+def determine_section_from_table(table_data: List[Dict[str, Any]]) -> str:
+    """Determine financial statement section from table content."""
+    # Collect all category names for comprehensive analysis
+    all_categories = []
+    for row in table_data[:15]:  # Check more rows for better accuracy
+        category_name = row.get("과 목", "").strip()
+        if category_name:
+            all_categories.append(category_name.lower())
+
+    all_text = " ".join(all_categories)
+
+    # Hierarchical classification with exclusion rules
+
+    # 1. Balance Sheet - very distinctive asset/liability structure
+    bs_indicators = ["자 산", "부 채"]
+    bs_structure = ["유동자산", "비유동자산", "유동부채", "비유동부채"]
+
+    if any(indicator in all_text for indicator in bs_indicators):
+        # Strong BS indicators present
+        if any(struct in all_text for struct in bs_structure):
+            return "BS"  # Confirmed by structure
+        elif all_text.count("자 산") > 1 or all_text.count("부 채") > 1:
+            return "BS"  # Multiple mentions
+
+    # 2. Cash Flow - highly distinctive activity-based structure
+    cf_activities = ["영업활동", "투자활동", "재무활동"]
+    if sum(1 for activity in cf_activities if activity in all_text) >= 2:
+        return "CF"  # Two or more activities = cash flow
+    elif "현금흐름" in all_text:
+        return "CF"
+
+    # 3. Equity - specific equity terms
+    eq_core = ["자본금", "이익잉여금"]
+    eq_indicators = ["자본에 직접 인식", "주주와의 거래", "자본변동"]
+
+    if any(core in all_text for core in eq_core):
+        return "EQ"
+    elif any(indicator in all_text for indicator in eq_indicators):
+        return "EQ"
+
+    # 4. Comprehensive Income - specific comprehensive income terms
+    # Must be dominant theme, not just mentioned
+    ci_core = ["포괄손익", "기타포괄손익", "총포괄손익"]
+    ci_count = sum(1 for term in ci_core if term in all_text)
+
+    # Check if CI is the main theme (not just mentioned in BS context)
+    if ci_count >= 2:  # Multiple CI terms
+        return "CI"
+    elif "포괄손익" in all_text and "자 산" not in all_text and "부 채" not in all_text:
+        return "CI"  # CI mentioned without BS context
+
+    # 5. Profit & Loss - general income statement (fallback for income-related)
+    pl_indicators = ["매 출", "영업이익", "매출액", "매출원가"]
+    if any(indicator in all_text for indicator in pl_indicators):
+        # Only classify as PL if not clearly another type
+        if not any(
+            term in all_text for term in ["자 산", "부 채", "영업활동", "자본금"]
+        ):
+            return "PL"
+
+    return ""
+
+
+if __name__ == "__main__":
+    # Test extraction with available files
+    from .etl_config import DEFAULT_CONFIG
+
+    config = DEFAULT_CONFIG
+    # Use only recent files for testing
+    recent_years = [2022, 2023, 2024]
+    available_files = config.get_processed_files(recent_years)
+
+    if available_files:
+        # Test with the most recent file
+        test_file = available_files[-1]
+        print(f"Testing FS categories extraction with: {test_file.name}")
+
+        with open(test_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Find financial tables
+        sections = data.get("sections", [])
+        categories_found = 0
+
+        for section in sections:
+            tables = section.get("tables", [])
+
+            for table in tables:
+                if table.get("metadata", {}).get("is_financial_table", False):
+                    table_data = table.get("data", [])
+                    section_code = determine_section_from_table(table_data)
+
+                    if section_code:
+                        categories = extract_category_hierarchy(
+                            table_data, section_code
+                        )
+                        categories_found += len(categories)
+                        print(
+                            f"\n=== {section_code} Categories ({len(categories)} found) ==="
+                        )
+                        for cat in categories[:5]:  # Show first 5
+                            print(
+                                f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
+                            )
+                        if len(categories) > 5:
+                            print(f"  ... and {len(categories) - 5} more")
+
+        print(f"\nTotal categories found: {categories_found}")
+    else:
+        print("No processed files found for testing")
