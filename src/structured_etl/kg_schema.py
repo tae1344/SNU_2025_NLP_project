@@ -54,7 +54,7 @@ PROPS: Final[Dict[str, str]] = {
     "id": "id",
     "name": "name",
     "year": "year",
-    "section_code": "section_code",  # BS | PL | CF | EQ
+    "section_code": "section_code",  # BS | PL | CI | CF | EQ
     "category_path": "category_path",  # e.g., Assets>CurrentAssets>Cash
     "metric": "metric",
     "unit": "unit",

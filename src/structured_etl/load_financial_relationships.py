@@ -18,6 +18,15 @@ from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_subsidiary_id
 from .etl_config import ETLConfig, extract_company_info_from_data
 
+# Constants for relationship types and node types
+INVESTS_IN = RELATIONSHIP_TYPES["INVESTS_IN"]
+TRADES_WITH = RELATIONSHIP_TYPES["TRADES_WITH"]
+OWES_TO = RELATIONSHIP_TYPES["OWES_TO"]
+GUARANTEES_FOR = RELATIONSHIP_TYPES.get("GUARANTEES_FOR", "guarantees_for")
+
+COMPANY_NODE = NODE_TYPES["COMPANY"]
+SUBSIDIARY_NODE = NODE_TYPES["SUBSIDIARY"]
+
 
 def extract_financial_relationships(
     processed_data: Dict[str, Any], year: int, company_name: str
@@ -183,7 +192,7 @@ def _extract_investment_relationships(
         if target_company:
             relationships.append(
                 {
-                    "relationship_type": "invests_in",
+                    "relationship_type": INVESTS_IN,
                     "source_company": company_name,
                     "target_company": target_company,
                     "year": year,
@@ -329,7 +338,7 @@ def _extract_trade_relationships(
         if target_company and sales_amount and sales_amount > 0:
             relationships.append(
                 {
-                    "relationship_type": "trades_with",
+                    "relationship_type": TRADES_WITH,
                     "source_company": company_name,
                     "target_company": target_company,
                     "year": year,
@@ -348,7 +357,7 @@ def _extract_trade_relationships(
         if target_company and purchase_amount and purchase_amount > 0:
             relationships.append(
                 {
-                    "relationship_type": "trades_with",
+                    "relationship_type": TRADES_WITH,
                     "source_company": target_company,  # Reverse direction for purchases
                     "target_company": company_name,
                     "year": year,
@@ -364,7 +373,7 @@ def _extract_trade_relationships(
         if target_company and (asset_disposal or asset_acquisition):
             relationships.append(
                 {
-                    "relationship_type": "trades_with",
+                    "relationship_type": TRADES_WITH,
                     "source_company": company_name,
                     "target_company": target_company,
                     "year": year,
@@ -479,7 +488,7 @@ def _extract_debt_relationships(
         if target_company and receivables and receivables > 0:
             relationships.append(
                 {
-                    "relationship_type": "owes_to",
+                    "relationship_type": OWES_TO,
                     "source_company": target_company,  # Debtor
                     "target_company": company_name,  # Creditor
                     "year": year,
@@ -495,7 +504,7 @@ def _extract_debt_relationships(
         if target_company and payables and payables > 0:
             relationships.append(
                 {
-                    "relationship_type": "owes_to",
+                    "relationship_type": OWES_TO,
                     "source_company": company_name,  # Debtor
                     "target_company": target_company,  # Creditor
                     "year": year,
@@ -728,36 +737,36 @@ def load_financial_relationship_edges(
 
     for rel in all_relationships:
         # Create more specific deduplication key based on relationship type
-        if rel["relationship_type"] == "invests_in":
+        if rel["relationship_type"] == INVESTS_IN:
             # For investments, use company + ownership percentage as key
             key = (
                 rel["source_company"],
                 rel["target_company"],
-                "invests_in",
+                INVESTS_IN,
                 rel.get("ownership_percentage"),
             )
-        elif rel["relationship_type"] == "trades_with":
+        elif rel["relationship_type"] == TRADES_WITH:
             # For trades, use company + transaction type as key
             key = (
                 rel["source_company"],
                 rel["target_company"],
-                "trades_with",
+                TRADES_WITH,
                 rel.get("transaction_type", "unknown"),
             )
-        elif rel["relationship_type"] == "owes_to":
+        elif rel["relationship_type"] == OWES_TO:
             # For debts, use company + transaction direction as key
             key = (
                 rel["source_company"],
                 rel["target_company"],
-                "owes_to",
+                OWES_TO,
                 rel.get("transaction_direction", "unknown"),
             )
-        elif rel["relationship_type"] == "guarantees_for":
+        elif rel["relationship_type"] == GUARANTEES_FOR:
             # For guarantees, use company + guarantee type as key
             key = (
                 rel["source_company"],
                 rel["target_company"],
-                "guarantees_for",
+                GUARANTEES_FOR,
                 rel.get("guarantee_type", "unknown"),
             )
         else:
