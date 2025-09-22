@@ -304,7 +304,6 @@ def _is_header_row(item_name: str) -> bool:
     header_patterns = [
         "항목",
         "구분",
-        "과목",
         "계정",
         "단위",
         "백만원",
@@ -320,6 +319,23 @@ def _is_header_row(item_name: str) -> bool:
     ]
 
     item_lower = item_name.lower()
+
+    # "과목" 패턴은 더 정확하게 매칭
+    if "과목" in item_lower:
+        # "과목"이 단독으로 나타나거나 "항목"과 함께 나타날 때만 헤더로 인식
+        if item_lower.strip() == "과목" or "항목" in item_lower:
+            return True
+        # "매출원가" 같은 실제 재무 항목은 헤더가 아님
+        if any(
+            term in item_lower
+            for term in ["매출", "자산", "부채", "수익", "비용", "이익"]
+        ):
+            return False
+
+    # 로마숫자로 시작하는 항목들은 실제 재무 항목 (헤더가 아님)
+    if item_name.strip().startswith(("Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ")):
+        return False
+
     return (
         any(pattern in item_lower for pattern in header_patterns) or len(item_name) < 3
     )
