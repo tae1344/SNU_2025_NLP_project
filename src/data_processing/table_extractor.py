@@ -119,20 +119,31 @@ class TableExtractor:
             # 컬럼명 정리 (MultiIndex 처리)
             df = self._normalize_columns(df)
 
-            # 주석 컬럼 처리
+            # 주석 컬럼 처리 (공백/영문 표기까지 포함해 감지)
             df = self._process_notes_columns(df)
 
             # 테이블 데이터 정리
             table_records = df.to_dict("records")
 
-            # 테이블 숫자 데이터 처리
+            # 주석 컬럼 판별 헬퍼 (공백/대소문자/영문 대응)
+            def _is_note_col(col_name: str) -> bool:
+                n = str(col_name or "").strip().lower().replace(" ", "")
+                return any(
+                    tok in n for tok in ["주석", "note", "비고"]
+                )  # space-insensitive
+
+            # 테이블 숫자/텍스트 정리 (주석 컬럼은 원본 유지)
             for record in table_records:
                 for k, v in record.items():
-                    record[k] = (
-                        self.text_cleaner.clean_table_text(v)
-                        if isinstance(v, str)
-                        else v
-                    )
+                    if _is_note_col(k):
+                        # 주석 컬럼은 dict(notes_reference) 또는 원문 문자열 유지
+                        record[k] = v
+                    else:
+                        record[k] = (
+                            self.text_cleaner.clean_table_text(v)
+                            if isinstance(v, str)
+                            else v
+                        )
 
             table_records = self._clean_nan_values(table_records)
 
@@ -168,7 +179,8 @@ class TableExtractor:
         processed_df = df.copy()
 
         for col in processed_df.columns:
-            if "주석" in str(col):
+            col_norm = str(col).strip().lower().replace(" ", "")
+            if any(tok in col_norm for tok in ["주석", "note", "비고"]):
                 processed_df[col] = processed_df[col].apply(
                     self._process_notes_reference
                 )
