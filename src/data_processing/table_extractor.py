@@ -69,12 +69,43 @@ class TableExtractor:
         tables = []
         table_tags = parsed_html.find_all("table")
 
+        # Apply unit only to the table immediately following a unit anchor
+        pending_unit: Optional[Dict[str, Any]] = None
+
         for i, table in enumerate(table_tags):
             try:
                 table_data = self._parse_table(table, i)
-                if table_data:
-                    tables.append(table_data)
-                    self.logger.debug(f"테이블 {i+1} 추출 완료")
+                if not table_data:
+                    continue
+
+                # 단위 상속/적용 메타 처리
+                meta = table_data.get("metadata", {})
+                unit_candidate = meta.get("unit_candidate")
+                require_unit = bool(meta.get("require_unit"))
+
+                if unit_candidate:
+                    # Mark this table as an anchor and schedule unit for the next table only
+                    unit_candidate["table_index"] = i
+                    meta["unit"] = unit_candidate
+                    table_data.setdefault("normalized", {})["unit"] = unit_candidate
+                    pending_unit = unit_candidate
+                else:
+                    if pending_unit:
+                        # Apply the pending unit to this table, then clear
+                        inherited = dict(pending_unit)
+                        inherited["source"] = "inherited"
+                        inherited["inherited_from_index"] = pending_unit.get(
+                            "table_index"
+                        )
+                        meta["unit"] = inherited
+                        table_data.setdefault("normalized", {})["unit"] = inherited
+                        meta["unit_inherited"] = True
+                        pending_unit = None
+                    else:
+                        meta["unit_inherited"] = False
+
+                tables.append(table_data)
+                self.logger.debug(f"테이블 {i+1} 추출 완료")
 
             except Exception as e:
                 self.logger.warning(f"테이블 {i+1} 추출 실패: {e}")
@@ -149,6 +180,22 @@ class TableExtractor:
 
             # 테이블 메타데이터 추출
             metadata = self._extract_table_metadata(table, df)
+
+            # 단위 후보/필요여부/오버라이드 탐지
+            unit_candidate = self._detect_unit_from_table(
+                table, table_html, df, table_records
+            )
+            require_unit, column_units = self._classify_require_unit(df, table_records)
+            overrides = self._detect_unit_overrides(table_records)
+
+            if unit_candidate:
+                metadata["unit_candidate"] = unit_candidate
+
+            metadata["require_unit"] = require_unit
+            if column_units:
+                metadata["column_units"] = column_units
+            if overrides:
+                metadata["override_units"] = overrides
 
             return {
                 "index": index,
@@ -346,6 +393,250 @@ class TableExtractor:
         }
 
         return metadata
+
+    # -------------------------
+    # Unit helpers
+    # -------------------------
+
+    def _parse_unit_from_text(self, text: str) -> Optional[Dict[str, Any]]:
+        """텍스트에서 (단위: X) 패턴을 추출하여 multiplier 계산."""
+        if not text:
+            return None
+        m = re.search(r"\(\s*단위\s*[:：]\s*([^\)]+)\)", text)
+        if not m:
+            return None
+        unit_raw = m.group(1).strip()
+        unit_norm = unit_raw.replace(" ", "")
+        multiplier = None
+        # 한국어 단위
+        if any(k in unit_norm for k in ["백만원", "백만 원", "백만원"]):
+            multiplier = 1_000_000
+            unit_label = "백만원"
+        elif any(k in unit_norm for k in ["천원", "천 원"]):
+            multiplier = 1_000
+            unit_label = "천원"
+        elif any(k in unit_norm for k in ["억원", "억 원"]):
+            multiplier = 100_000_000
+            unit_label = "억원"
+        elif any(k in unit_norm for k in ["원"]):
+            multiplier = 1
+            unit_label = "원"
+        else:
+            # 외화/기타 단위는 원문 유지
+            unit_label = unit_raw
+            multiplier = None
+
+        return {"unit": unit_label, "multiplier": multiplier, "source": "table"}
+
+    def _should_apply_inherited_unit(
+        self,
+        metadata: Dict[str, Any],
+        table_records: List[Dict[str, Any]],
+        columns: List[str],
+    ) -> bool:
+        """상속 단위를 적용할지 여부에 대한 경량 휴리스틱.
+
+        규칙:
+        - 숫자 비중이 일정 수준(>= 0.15) 이상이면 적용
+        - 또는 금융 키워드(금액/합계/원/백만원 등)나 합계 행이 존재하면 적용
+        - 그 외(순수 텍스트/요약 표)는 미적용
+        """
+        # 1) 숫자 비중 계산
+        total = 0
+        numeric = 0
+        for rec in table_records:
+            for v in rec.values():
+                total += 1
+                if isinstance(v, (int, float)):
+                    numeric += 1
+                elif (
+                    isinstance(v, str) and v.replace(",", "").replace(".", "").isdigit()
+                ):
+                    numeric += 1
+        if total > 0 and (numeric / total) >= 0.15:
+            return True
+
+        # 2) 금융 키워드/통화 힌트
+        keywords = ["원", "백만원", "천원", "억원", "금액", "합계", "총계", "%"]
+        col_text = " ".join([str(c) for c in columns])
+        if any(k in col_text for k in keywords):
+            return True
+        # 레코드 텍스트 스캔(가벼운 검사)
+        scan_limit = min(len(table_records), 5)
+        for rec in table_records[:scan_limit]:
+            for v in rec.values():
+                if isinstance(v, str) and any(k in v for k in keywords):
+                    return True
+
+        # 3) 메타 힌트: is_financial_table이 참이면 적용
+        if bool(metadata.get("is_financial_table")):
+            return True
+
+        return False
+
+    def _normalize_single_unit(self, token: str) -> Dict[str, Any]:
+        """단일 단위 토큰을 표준화하여 유형/배율 정보를 부여."""
+        tok = token.strip()
+        tok_norm = tok.replace(" ", "").lower()
+
+        unit_type = "other"
+        multiplier = None
+        label = tok
+
+        # 통화 단위
+        if any(k in tok_norm for k in ["백만원"]):
+            unit_type, label, multiplier = "money", "백만원", 1_000_000
+        elif any(k in tok_norm for k in ["천원"]):
+            unit_type, label, multiplier = "money", "천원", 1_000
+        elif any(k in tok_norm for k in ["억원"]):
+            unit_type, label, multiplier = "money", "억원", 100_000_000
+        elif any(k in tok_norm for k in ["원"]):
+            unit_type, label, multiplier = "money", "원", 1
+        elif any(k in tok_norm for k in ["usd", "us$", "달러"]):
+            unit_type, label, multiplier = "money", tok, None
+
+        # 수량/주식 단위
+        elif any(k in tok_norm for k in ["천주"]):
+            unit_type, label, multiplier = "shares", "천주", 1_000
+        elif any(k in tok_norm for k in ["주"]):
+            unit_type, label, multiplier = "shares", "주", 1
+
+        # 비율
+        elif "%" in tok or any(k in tok_norm for k in ["percent", "퍼센트", "율"]):
+            unit_type, label, multiplier = "percent", "%", None
+
+        return {"raw": tok, "unit": label, "type": unit_type, "multiplier": multiplier}
+
+    def _parse_units_from_text(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """텍스트에서 (단위: X[, Y ...]) 패턴을 모두 파싱하여 단위 리스트 반환."""
+        if not text:
+            return None
+        m = re.search(r"\(\s*단위\s*[:：]\s*([^\)]+)\)", text)
+        if not m:
+            return None
+        payload = m.group(1)
+        tokens = re.split(r"[,，;；·]+", payload)
+        units = [self._normalize_single_unit(t) for t in tokens if t.strip()]
+        return units or None
+
+    def _detect_unit_from_table(
+        self,
+        table: Tag,
+        table_html: str,
+        df: pd.DataFrame,
+        table_records: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """헤더/캡션 우선 단위 후보 탐지. 필요 시 '앵커성 표'에 한해 본문도 허용.
+
+        주의: 행/셀 내부의 "(단위: ...)"는 표 전체 단위를 덮지 않기 위해 이 단계에서 무시하고
+        별도의 _detect_unit_overrides()에서 행 오버라이드로만 처리한다.
+        """
+        # 헤더/캡션 텍스트에서만 탐지
+        header_texts = []
+        for tag_name in ("caption", "thead", "th"):
+            for tag in table.find_all(tag_name):
+                header_texts.append(tag.get_text(" "))
+        units = self._parse_units_from_text(" \n ".join(header_texts))
+        if units:
+            main = next((u for u in units if u.get("type") == "money"), units[0])
+            return {
+                "unit": main["unit"],
+                "multiplier": main.get("multiplier"),
+                "source": "table",
+                "units": units,
+            }
+
+        # 앵커성 표(작고 숫자 비중 낮은 표)는 본문에서도 단위 문구를 앵커로 허용
+        row_count = df.shape[0]
+        col_count = df.shape[1]
+        total = 0
+        numeric = 0
+        for rec in table_records:
+            for v in rec.values():
+                total += 1
+                if isinstance(v, (int, float)):
+                    numeric += 1
+                elif (
+                    isinstance(v, str) and v.replace(",", "").replace(".", "").isdigit()
+                ):
+                    numeric += 1
+        numeric_ratio = (numeric / total) if total else 0
+
+        is_anchor_like = row_count <= 6 and col_count <= 4 and numeric_ratio < 0.2
+        if is_anchor_like:
+            body_texts = []
+            for rec in table_records:
+                for v in rec.values():
+                    if isinstance(v, str):
+                        body_texts.append(v)
+            units = self._parse_units_from_text(" \n ".join(body_texts))
+            if units:
+                main = next((u for u in units if u.get("type") == "money"), units[0])
+                return {
+                    "unit": main["unit"],
+                    "multiplier": main.get("multiplier"),
+                    "source": "table",
+                    "units": units,
+                }
+        return None
+
+    def _classify_require_unit(
+        self, df: pd.DataFrame, table_records: List[Dict[str, Any]]
+    ) -> (bool, Optional[Dict[str, str]]):
+        """단위 필요 여부와 컬럼별 단위 힌트('%', '율' 등) 분류."""
+        # 숫자 비중 기반 휴리스틱
+        numeric_cells = 0
+        total_cells = 0
+        for rec in table_records:
+            for v in rec.values():
+                total_cells += 1
+                if isinstance(v, (int, float)):
+                    numeric_cells += 1
+                elif (
+                    isinstance(v, str) and v.replace(",", "").replace(".", "").isdigit()
+                ):
+                    numeric_cells += 1
+        numeric_ratio = (numeric_cells / total_cells) if total_cells else 0
+        require_unit = numeric_ratio > 0.3
+
+        # 컬럼 단위 힌트 수집
+        column_units: Dict[str, str] = {}
+        for col in df.columns:
+            c = str(col)
+            c_norm = c.lower().replace(" ", "")
+            if "%" in c or any(k in c_norm for k in ["율", "ratio", "margin"]):
+                column_units[str(col)] = "%"
+            elif any(k in c_norm for k in ["주식수", "shares", "주식", "주"]):
+                column_units[str(col)] = "주"
+
+        return require_unit, (column_units or None)
+
+    def _detect_unit_overrides(
+        self, table_records: List[Dict[str, Any]]
+    ) -> Optional[Dict[int, Dict[str, Any]]]:
+        """행 레벨 단위 오버라이드 탐지."""
+        overrides: Dict[int, Dict[str, Any]] = {}
+        for idx, rec in enumerate(table_records):
+            texts = [v for v in rec.values() if isinstance(v, str)]
+            if not texts:
+                continue
+            unit = None
+            for t in texts:
+                units = self._parse_units_from_text(t)
+                if units:
+                    main = next(
+                        (u for u in units if u.get("type") == "money"), units[0]
+                    )
+                    unit = {
+                        "unit": main["unit"],
+                        "multiplier": main.get("multiplier"),
+                        "source": "table",
+                        "units": units,
+                    }
+                    break
+            if unit:
+                overrides[idx] = unit
+        return overrides or None
 
     def _has_header_row(self, table: Tag) -> bool:
         """헤더 행 존재 여부 확인"""
