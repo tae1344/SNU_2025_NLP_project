@@ -85,6 +85,9 @@ def _extract_investment_relationships(
         ownership_pct = None
         book_value = None
         market_value = None
+        relationship_nature = None
+        region = None
+        business_type = None
 
         # Identify target company and amounts
         for key, value in row.items():
@@ -94,36 +97,90 @@ def _extract_investment_relationships(
             key_lower = str(key).lower()
             value_str = str(value)
 
-            # Company name identification
+            # Company name identification - improved pattern matching
             if any(
-                term in key_lower for term in ["기업명", "회사명", "기업 명"]
-            ) and any(samsung_term in value_str for samsung_term in ["삼성", "Samsung"]):
-                target_company = value_str.strip()
+                term in key_lower
+                for term in [
+                    "기업명",
+                    "회사명",
+                    "기업 명",
+                    "company",
+                    "('기업명",
+                    "('회사명",
+                    "기업명(*",
+                    "회사명(*",
+                ]
+            ):
+                # Check if it's a Samsung-related company
+                if any(
+                    samsung_term in value_str
+                    for samsung_term in [
+                        "삼성",
+                        "Samsung",
+                        "SAMEX",
+                        "SEDA",
+                        "SEM",
+                        "SEDAM",
+                        "SEUK",
+                        "SEL",
+                        "SSEL",
+                        "SGE",
+                        "SETK",
+                        "SAPL",
+                        "SESP",
+                        "SME",
+                        "SCIC",
+                        "SEHK",
+                        "SET",
+                        "SEA",
+                        "SII",
+                    ]
+                ):
+                    target_company = value_str.strip()
 
-            # Amount identification
+            # Ownership percentage identification - improved patterns
             elif any(
-                term in key_lower for term in ["당기말", "당기"]
+                term in key_lower
+                for term in ["지분율", "지분", "ownership", "지분율(%", "지분율 %"]
+            ) and _is_numeric_amount(value):
+                ownership_pct = _parse_percentage(value)
+
+            # Amount identification - improved patterns
+            elif any(
+                term in key_lower
+                for term in ["당기말", "당기", "current", "('당기말", "('당기"]
             ) and _is_numeric_amount(value):
                 current_amount = _parse_amount(value)
             elif any(
-                term in key_lower for term in ["전기말", "전기"]
+                term in key_lower
+                for term in ["전기말", "전기", "previous", "('전기말", "('전기"]
             ) and _is_numeric_amount(value):
                 previous_amount = _parse_amount(value)
+
+            # Book value and market value identification
             elif any(
-                term in key_lower for term in ["지분율", "지분"]
-            ) and _is_numeric_amount(value):
-                ownership_pct = _parse_percentage(value)
-            elif any(
-                term in key_lower for term in ["장부금액", "장부가액"]
+                term in key_lower
+                for term in ["장부금액", "장부가액", "book", "취득원가"]
             ) and _is_numeric_amount(value):
                 book_value = _parse_amount(value)
             elif any(
-                term in key_lower for term in ["시장가치", "시장가액"]
+                term in key_lower
+                for term in ["시장가치", "시장가액", "market", "시장가치"]
             ) and _is_numeric_amount(value):
                 market_value = _parse_amount(value)
 
+            # Relationship nature and business type
+            elif any(
+                term in key_lower
+                for term in ["관계의 성격", "업종", "business", "nature"]
+            ):
+                relationship_nature = value_str.strip()
+            elif any(term in key_lower for term in ["지역", "region", "area"]):
+                region = value_str.strip()
+
         # Create relationship if we have meaningful data
-        if target_company and (current_amount or previous_amount or ownership_pct):
+        # Relaxed condition:只要有公司名就创建关系，不一定要有金额
+        if target_company:
             relationships.append(
                 {
                     "relationship_type": "invests_in",
@@ -135,6 +192,9 @@ def _extract_investment_relationships(
                     "ownership_percentage": ownership_pct,
                     "book_value": book_value,
                     "market_value": market_value,
+                    "relationship_nature": relationship_nature,
+                    "region": region,
+                    "business_type": business_type,
                     "transaction_type": "investment",
                     "data_source": "investment_table",
                 }
@@ -155,6 +215,10 @@ def _extract_trade_relationships(
         purchase_amount = None
         asset_disposal = None
         asset_acquisition = None
+        relationship_type = None
+        assets = None
+        liabilities = None
+        net_income = None
 
         # Identify company and transaction amounts
         for key, value in row.items():
@@ -164,29 +228,102 @@ def _extract_trade_relationships(
             key_lower = str(key).lower()
             value_str = str(value)
 
-            # Company name
-            if any(term in key_lower for term in ["기업명", "회사명"]) and any(
-                samsung_term in value_str for samsung_term in ["삼성", "Samsung"]
+            # Company name - improved pattern matching
+            if any(
+                term in key_lower
+                for term in [
+                    "기업명",
+                    "회사명",
+                    "company",
+                    "('기업명",
+                    "('회사명",
+                    "기업명(*",
+                    "회사명(*",
+                    "기업명(*1)",
+                    "회사명(*1)",
+                ]
             ):
-                target_company = value_str.strip()
+                # Check if it's a Samsung-related company
+                if any(
+                    samsung_term in value_str
+                    for samsung_term in [
+                        "삼성",
+                        "Samsung",
+                        "SAMEX",
+                        "SEDA",
+                        "SEM",
+                        "SEDAM",
+                        "SEUK",
+                        "SEL",
+                        "SSEL",
+                        "SGE",
+                        "SETK",
+                        "SAPL",
+                        "SESP",
+                        "SME",
+                        "SCIC",
+                        "SEHK",
+                        "SET",
+                        "SEA",
+                        "SII",
+                        "디스플레이",
+                        "에스디에스",
+                        "바이오로직스",
+                        "SDI",
+                        "제일기획",
+                    ]
+                ):
+                    target_company = value_str.strip()
 
-            # Transaction amounts
-            elif any(term in key_lower for term in ["매출"]) and _is_numeric_amount(
-                value
-            ):
+            # Transaction amounts - improved patterns
+            elif any(
+                term in key_lower
+                for term in ["매출", "매출액", "매출 등", "sales", "('매출", "('매출액"]
+            ) and _is_numeric_amount(value):
                 sales_amount = _parse_amount(value)
-            elif any(term in key_lower for term in ["매입"]) and _is_numeric_amount(
-                value
-            ):
+            elif any(
+                term in key_lower
+                for term in [
+                    "매입",
+                    "매입액",
+                    "매입 등",
+                    "purchase",
+                    "('매입",
+                    "('매입액",
+                ]
+            ) and _is_numeric_amount(value):
                 purchase_amount = _parse_amount(value)
             elif any(
-                term in key_lower for term in ["자산", "처분"]
+                term in key_lower
+                for term in ["비유동자산 처분", "자산 처분", "asset disposal"]
             ) and _is_numeric_amount(value):
                 asset_disposal = _parse_amount(value)
             elif any(
-                term in key_lower for term in ["자산", "매입"]
+                term in key_lower
+                for term in ["비유동자산 매입", "자산 매입", "asset acquisition"]
             ) and _is_numeric_amount(value):
                 asset_acquisition = _parse_amount(value)
+
+            # Additional financial data
+            elif any(
+                term in key_lower for term in ["자산", "assets", "('자산"]
+            ) and _is_numeric_amount(value):
+                assets = _parse_amount(value)
+            elif any(
+                term in key_lower for term in ["부채", "liabilities", "('부채"]
+            ) and _is_numeric_amount(value):
+                liabilities = _parse_amount(value)
+            elif any(
+                term in key_lower
+                for term in ["당기순이익", "순이익", "net income", "('당기순이익"]
+            ) and _is_numeric_amount(value):
+                net_income = _parse_amount(value)
+
+            # Relationship type identification
+            elif any(
+                term in key_lower for term in ["구분", "구분:", "type", "category"]
+            ):
+                relationship_type = value_str.strip()
 
         # Create relationships for sales (outbound)
         if target_company and sales_amount and sales_amount > 0:
@@ -197,6 +334,10 @@ def _extract_trade_relationships(
                     "target_company": target_company,
                     "year": year,
                     "amount_current": sales_amount,
+                    "assets": assets,
+                    "liabilities": liabilities,
+                    "net_income": net_income,
+                    "relationship_category": relationship_type,
                     "transaction_type": "sales",
                     "transaction_direction": "outbound",
                     "data_source": "trade_table",
@@ -212,8 +353,29 @@ def _extract_trade_relationships(
                     "target_company": company_name,
                     "year": year,
                     "amount_current": purchase_amount,
-                    "transaction_type": "sales",  # From counterparty perspective
-                    "transaction_direction": "outbound",
+                    "relationship_category": relationship_type,
+                    "transaction_type": "purchase",
+                    "transaction_direction": "inbound",
+                    "data_source": "trade_table",
+                }
+            )
+
+        # Create relationships for asset transactions
+        if target_company and (asset_disposal or asset_acquisition):
+            relationships.append(
+                {
+                    "relationship_type": "trades_with",
+                    "source_company": company_name,
+                    "target_company": target_company,
+                    "year": year,
+                    "amount_current": asset_disposal or asset_acquisition,
+                    "asset_disposal": asset_disposal,
+                    "asset_acquisition": asset_acquisition,
+                    "relationship_category": relationship_type,
+                    "transaction_type": "asset_transaction",
+                    "transaction_direction": (
+                        "outbound" if asset_disposal else "inbound"
+                    ),
                     "data_source": "trade_table",
                 }
             )
@@ -231,6 +393,7 @@ def _extract_debt_relationships(
         target_company = None
         receivables = None
         payables = None
+        relationship_type = None
 
         # Identify company and debt/credit amounts
         for key, value in row.items():
@@ -240,21 +403,77 @@ def _extract_debt_relationships(
             key_lower = str(key).lower()
             value_str = str(value)
 
-            # Company name
-            if any(term in key_lower for term in ["기업명", "회사명"]) and any(
-                samsung_term in value_str for samsung_term in ["삼성", "Samsung"]
+            # Company name - improved pattern matching
+            if any(
+                term in key_lower
+                for term in [
+                    "기업명",
+                    "회사명",
+                    "company",
+                    "('기업명",
+                    "('회사명",
+                    "기업명(*",
+                    "회사명(*",
+                    "기업명(*1)",
+                    "회사명(*1)",
+                ]
             ):
-                target_company = value_str.strip()
+                # Check if it's a Samsung-related company
+                if any(
+                    samsung_term in value_str
+                    for samsung_term in [
+                        "삼성",
+                        "Samsung",
+                        "SAMEX",
+                        "SEDA",
+                        "SEM",
+                        "SEDAM",
+                        "SEUK",
+                        "SEL",
+                        "SSEL",
+                        "SGE",
+                        "SETK",
+                        "SAPL",
+                        "SESP",
+                        "SME",
+                        "SCIC",
+                        "SEHK",
+                        "SET",
+                        "SEA",
+                        "SII",
+                        "디스플레이",
+                        "에스디에스",
+                        "바이오로직스",
+                        "SDI",
+                        "제일기획",
+                    ]
+                ):
+                    target_company = value_str.strip()
 
-            # Debt/Credit amounts
-            elif any(term in key_lower for term in ["채권"]) and _is_numeric_amount(
-                value
-            ):
+            # Debt/Credit amounts - improved patterns
+            elif any(
+                term in key_lower
+                for term in ["채권", "채권 등", "receivables", "('채권", "채권 등(*2)"]
+            ) and _is_numeric_amount(value):
                 receivables = _parse_amount(value)
-            elif any(term in key_lower for term in ["채무"]) and _is_numeric_amount(
-                value
-            ):
+            elif any(
+                term in key_lower
+                for term in [
+                    "채무",
+                    "채무 등",
+                    "payables",
+                    "('채무",
+                    "채무 등(*2)",
+                    "채무 등(*3)",
+                ]
+            ) and _is_numeric_amount(value):
                 payables = _parse_amount(value)
+
+            # Relationship type identification
+            elif any(
+                term in key_lower for term in ["구분", "구분:", "type", "category"]
+            ):
+                relationship_type = value_str.strip()
 
         # Create receivables relationship (target company owes to source)
         if target_company and receivables and receivables > 0:
@@ -265,6 +484,7 @@ def _extract_debt_relationships(
                     "target_company": company_name,  # Creditor
                     "year": year,
                     "amount_current": receivables,
+                    "relationship_category": relationship_type,
                     "transaction_type": "debt",
                     "transaction_direction": "inbound",  # Money flows to parent
                     "data_source": "debt_table",
@@ -280,6 +500,7 @@ def _extract_debt_relationships(
                     "target_company": target_company,  # Creditor
                     "year": year,
                     "amount_current": payables,
+                    "relationship_category": relationship_type,
                     "transaction_type": "debt",
                     "transaction_direction": "outbound",  # Money flows from parent
                     "data_source": "debt_table",
@@ -297,42 +518,140 @@ def _extract_guarantee_relationships(
 
     # Look for guarantee-related content in table data
     for row in table_data:
+        target_company = None
+        guarantee_limit = None
+        related_debt = None
+        guarantee_end_date = None
+        guarantor = None
+        guarantee_type = None
+
+        # Check if row contains guarantee-related content
         row_text = " ".join(str(v) for v in row.values() if v).lower()
 
-        if any(term in row_text for term in ["보증", "담보"]) and any(
-            samsung_term in row_text for samsung_term in ["삼성", "samsung"]
+        if any(term in row_text for term in ["보증", "담보", "guarantee"]) and any(
+            samsung_term in row_text
+            for samsung_term in ["삼성", "samsung", "setk", "sea"]
         ):
 
-            # Extract guarantee amounts
-            amounts = re.findall(r"[0-9,]+", row_text)
-            large_amounts = [
-                _parse_amount(amt) for amt in amounts if len(amt.replace(",", "")) >= 6
-            ]  # 6+ digits
+            # Extract specific guarantee information from structured data
+            for key, value in row.items():
+                if not value:
+                    continue
 
-            if large_amounts:
-                # Determine guarantee type
-                guarantee_type = (
-                    "debt_guarantee"
-                    if "채무보증" in row_text
-                    else (
-                        "payment_guarantee"
-                        if "지급보증" in row_text
-                        else "collateral" if "담보" in row_text else "guarantee"
-                    )
-                )
+                key_lower = str(key).lower()
+                value_str = str(value)
 
+                # Company identification for guarantee relationships
+                if any(
+                    term in key_lower
+                    for term in [
+                        "해외종속기업",
+                        "보증처",
+                        "기업명",
+                        "회사명",
+                        "subsidiary",
+                    ]
+                ):
+                    if any(
+                        samsung_term in value_str
+                        for samsung_term in [
+                            "삼성",
+                            "Samsung",
+                            "SETK",
+                            "SEDA",
+                            "SEM",
+                            "SEDAM",
+                            "SEUK",
+                            "SEL",
+                            "SSEL",
+                            "SGE",
+                            "SAPL",
+                            "SESP",
+                            "SME",
+                            "SCIC",
+                            "SEHK",
+                            "SET",
+                            "SEA",
+                            "SII",
+                        ]
+                    ):
+                        target_company = value_str.strip()
+
+                # Guarantee limit identification
+                elif any(
+                    term in key_lower
+                    for term in [
+                        "채무보증한도",
+                        "보증한도",
+                        "guarantee limit",
+                        "보증한도",
+                    ]
+                ) and _is_numeric_amount(value):
+                    guarantee_limit = _parse_amount(value)
+
+                # Related debt identification
+                elif any(
+                    term in key_lower
+                    for term in ["관련 차입금", "차입금", "related debt", "관련차입금"]
+                ) and _is_numeric_amount(value):
+                    related_debt = _parse_amount(value)
+
+                # Guarantee end date
+                elif any(
+                    term in key_lower
+                    for term in ["보증종료일", "종료일", "end date", "만료일"]
+                ):
+                    guarantee_end_date = value_str.strip()
+
+                # Guarantor identification
+                elif any(
+                    term in key_lower for term in ["보증처", "guarantor", "보증기관"]
+                ):
+                    guarantor = value_str.strip()
+
+            # Extract guarantee amounts from text if not found in structured fields
+            if not guarantee_limit and not related_debt:
+                amounts = re.findall(r"[0-9,]+", row_text)
+                large_amounts = [
+                    _parse_amount(amt)
+                    for amt in amounts
+                    if len(amt.replace(",", "")) >= 6
+                ]  # 6+ digits
+                if large_amounts:
+                    guarantee_limit = max(large_amounts)
+
+            # Determine guarantee type
+            if any(term in row_text for term in ["채무보증", "debt guarantee"]):
+                guarantee_type = "debt_guarantee"
+            elif any(term in row_text for term in ["지급보증", "payment guarantee"]):
+                guarantee_type = "payment_guarantee"
+            elif any(term in row_text for term in ["담보", "collateral"]):
+                guarantee_type = "collateral"
+            else:
+                guarantee_type = "guarantee"
+
+            # Create guarantee relationship
+            if guarantee_limit or related_debt:
                 relationships.append(
                     {
                         "relationship_type": "guarantees_for",
                         "source_company": company_name,  # Guarantor
-                        "target_company": "subsidiaries_general",  # General subsidiaries
+                        "target_company": target_company or "subsidiaries_general",
                         "year": year,
-                        "amount_current": max(large_amounts),  # Largest amount
+                        "amount_current": guarantee_limit,
+                        "guarantee_limit": guarantee_limit,
+                        "related_debt": related_debt,
+                        "guarantee_end_date": guarantee_end_date,
+                        "guarantor": guarantor,
                         "guarantee_type": guarantee_type,
                         "transaction_type": "guarantee",
                         "data_source": "guarantee_table",
                         "transaction_details": json.dumps(
-                            {"all_amounts": large_amounts, "raw_text": row_text[:200]}
+                            {
+                                "raw_text": row_text[:200],
+                                "guarantee_end_date": guarantee_end_date,
+                                "guarantor": guarantor,
+                            }
                         ),
                     }
                 )
@@ -403,13 +722,51 @@ def load_financial_relationship_edges(
 
     print(f"Extracted {len(all_relationships)} financial relationships")
 
-    # Deduplicate relationships by (source, target, relationship_type) key
+    # Improved deduplication logic with relationship-specific keys
     unique_relationships = {}
     duplicate_count = 0
 
     for rel in all_relationships:
-        # Create unique key for deduplication
-        key = (rel["source_company"], rel["target_company"], rel["relationship_type"])
+        # Create more specific deduplication key based on relationship type
+        if rel["relationship_type"] == "invests_in":
+            # For investments, use company + ownership percentage as key
+            key = (
+                rel["source_company"],
+                rel["target_company"],
+                "invests_in",
+                rel.get("ownership_percentage"),
+            )
+        elif rel["relationship_type"] == "trades_with":
+            # For trades, use company + transaction type as key
+            key = (
+                rel["source_company"],
+                rel["target_company"],
+                "trades_with",
+                rel.get("transaction_type", "unknown"),
+            )
+        elif rel["relationship_type"] == "owes_to":
+            # For debts, use company + transaction direction as key
+            key = (
+                rel["source_company"],
+                rel["target_company"],
+                "owes_to",
+                rel.get("transaction_direction", "unknown"),
+            )
+        elif rel["relationship_type"] == "guarantees_for":
+            # For guarantees, use company + guarantee type as key
+            key = (
+                rel["source_company"],
+                rel["target_company"],
+                "guarantees_for",
+                rel.get("guarantee_type", "unknown"),
+            )
+        else:
+            # Fallback to basic key
+            key = (
+                rel["source_company"],
+                rel["target_company"],
+                rel["relationship_type"],
+            )
 
         if key in unique_relationships:
             duplicate_count += 1
@@ -436,6 +793,23 @@ def load_financial_relationship_edges(
                 merged["book_value"] = rel["book_value"]
             if rel.get("market_value") and not existing.get("market_value"):
                 merged["market_value"] = rel["market_value"]
+
+            # Merge additional properties
+            for prop in [
+                "relationship_nature",
+                "region",
+                "business_type",
+                "relationship_category",
+                "guarantee_limit",
+                "related_debt",
+                "guarantee_end_date",
+                "guarantor",
+                "assets",
+                "liabilities",
+                "net_income",
+            ]:
+                if rel.get(prop) and not existing.get(prop):
+                    merged[prop] = rel[prop]
 
             # Update data source to indicate merge
             if existing["data_source"] != rel["data_source"]:
@@ -488,7 +862,7 @@ def load_financial_relationship_edges(
             # Create relationship with properties
             rel_type = RELATIONSHIP_TYPES[relationship["relationship_type"].upper()]
 
-            # Prepare relationship properties
+            # Prepare relationship properties with all new fields
             rel_props = {
                 "source_id": source_id,
                 "target_id": target_id,
@@ -503,6 +877,19 @@ def load_financial_relationship_edges(
                 "market_value": relationship.get("market_value"),
                 "guarantee_type": relationship.get("guarantee_type"),
                 "guarantee_limit": relationship.get("guarantee_limit"),
+                "relationship_nature": relationship.get("relationship_nature"),
+                "region": relationship.get("region"),
+                "business_type": relationship.get("business_type"),
+                "relationship_category": relationship.get("relationship_category"),
+                "related_debt": relationship.get("related_debt"),
+                "guarantee_end_date": relationship.get("guarantee_end_date"),
+                "guarantor": relationship.get("guarantor"),
+                "assets": relationship.get("assets"),
+                "liabilities": relationship.get("liabilities"),
+                "net_income": relationship.get("net_income"),
+                "asset_disposal": relationship.get("asset_disposal"),
+                "asset_acquisition": relationship.get("asset_acquisition"),
+                "transaction_details": relationship.get("transaction_details"),
             }
 
             session.run(
@@ -521,13 +908,38 @@ def load_financial_relationship_edges(
                     r.market_value = $market_value,
                     r.{PROPS['guarantee_type']} = $guarantee_type,
                     r.{PROPS['guarantee_limit']} = $guarantee_limit,
+                    r.relationship_nature = $relationship_nature,
+                    r.region = $region,
+                    r.business_type = $business_type,
+                    r.relationship_category = $relationship_category,
+                    r.related_debt = $related_debt,
+                    r.guarantee_end_date = $guarantee_end_date,
+                    r.guarantor = $guarantor,
+                    r.assets = $assets,
+                    r.liabilities = $liabilities,
+                    r.net_income = $net_income,
+                    r.asset_disposal = $asset_disposal,
+                    r.asset_acquisition = $asset_acquisition,
+                    r.transaction_details = $transaction_details,
                     r.data_source = $data_source
                 ON MATCH SET
                     r.{PROPS['amount_current']} = coalesce(r.{PROPS['amount_current']}, $amount_current),
                     r.{PROPS['amount_previous']} = coalesce(r.{PROPS['amount_previous']}, $amount_previous),
                     r.ownership_percentage = coalesce(r.ownership_percentage, $ownership_percentage),
                     r.book_value = coalesce(r.book_value, $book_value),
-                    r.market_value = coalesce(r.market_value, $market_value)
+                    r.market_value = coalesce(r.market_value, $market_value),
+                    r.relationship_nature = coalesce(r.relationship_nature, $relationship_nature),
+                    r.region = coalesce(r.region, $region),
+                    r.business_type = coalesce(r.business_type, $business_type),
+                    r.relationship_category = coalesce(r.relationship_category, $relationship_category),
+                    r.related_debt = coalesce(r.related_debt, $related_debt),
+                    r.guarantee_end_date = coalesce(r.guarantee_end_date, $guarantee_end_date),
+                    r.guarantor = coalesce(r.guarantor, $guarantor),
+                    r.assets = coalesce(r.assets, $assets),
+                    r.liabilities = coalesce(r.liabilities, $liabilities),
+                    r.net_income = coalesce(r.net_income, $net_income),
+                    r.asset_disposal = coalesce(r.asset_disposal, $asset_disposal),
+                    r.asset_acquisition = coalesce(r.asset_acquisition, $asset_acquisition)
                 """,
                 rel_props,
             )
