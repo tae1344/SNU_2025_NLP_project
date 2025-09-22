@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Set, Tuple
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_category_id, build_note_id
 from .etl_config import ETLConfig, extract_company_info_from_data
+from .note_utils import normalize_note_cell, extract_note_numbers
 
 
 def clean_category_name(item_name: str) -> str:
@@ -185,42 +186,41 @@ def extract_note_references_from_table(
         if not item_name:
             continue
 
-        # Try different column names for notes reference
-        notes_column_candidates = ["주석", "주 석", "note", "notes"]
+        # Try different column names for notes reference (case/space insensitive)
+        notes_column_candidates = ["주석", "주 석", "note", "notes", "비고"]
+        note_col_used = None
         for col_name in notes_column_candidates:
             if col_name in row:
                 notes_ref = row[col_name]
-                if notes_ref and isinstance(notes_ref, dict):
-                    break
+                note_col_used = col_name
+                break
 
-        if not isinstance(notes_ref, dict):
+        # Extract note numbers from dict or string
+        note_numbers = extract_note_numbers(notes_ref)
+        if not note_numbers:
             continue
 
-        if notes_ref.get("type") == "notes_reference":
-            note_numbers = notes_ref.get("note_numbers", [])
+        # Clean the item name by removing numbering prefixes
+        cleaned_item_name = clean_category_name(item_name)
+        if not cleaned_item_name:
+            continue
 
-            if not note_numbers:
-                continue
+        # Build original_value consistently
+        original_value = normalize_note_cell(notes_ref)
 
-            # Clean the item name by removing numbering prefixes
-            cleaned_item_name = clean_category_name(item_name)
-
-            if not cleaned_item_name:
-                continue
-
-            for note_number in note_numbers:
-                reference = {
-                    "item_name": cleaned_item_name,
-                    "original_item_name": item_name,  # Keep original for debugging
-                    "section_code": section_code,
-                    "note_number": note_number,
-                    "year": year,
-                    "company_name": company_name,
-                    "original_value": notes_ref.get("original_value", ""),
-                    "reference_count": notes_ref.get("reference_count", 1),
-                    "source_column": col_name,  # Track which column was used
-                }
-                references.append(reference)
+        for note_number in note_numbers:
+            reference = {
+                "item_name": cleaned_item_name,
+                "original_item_name": item_name,  # Keep original for debugging
+                "section_code": section_code,
+                "note_number": note_number,
+                "year": year,
+                "company_name": company_name,
+                "original_value": original_value,
+                "reference_count": len(note_numbers),
+                "source_column": note_col_used or "",
+            }
+            references.append(reference)
 
     return references
 

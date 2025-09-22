@@ -26,6 +26,7 @@ from .executor import (
     batch_upsert_nodes,
     batch_create_relationships,
 )
+from .note_utils import is_note_column, normalize_note_cell
 
 
 def extract_financial_data_optimized(
@@ -264,10 +265,19 @@ def _extract_table_data(
             if not value_raw and value_raw != 0:
                 continue
 
-            # Parse numerical value
-            parsed_value = _parse_financial_value(value_raw)
-            if parsed_value is None:
-                continue
+            # If this is a note reference column, keep as string to avoid 21,22 -> 2122 numeric merge
+            is_note_col = is_note_column(col_key)
+            if is_note_col:
+                # Render structured note objects or plain strings consistently
+                value_to_store = normalize_note_cell(value_raw)
+                is_negative = False
+            else:
+                # Parse numerical value
+                parsed_value = _parse_financial_value(value_raw)
+                if parsed_value is None:
+                    continue
+                value_to_store = parsed_value["value"]
+                is_negative = parsed_value["is_negative"]
 
             # Create node data
             node_id = build_financial_data_id(company_name, year, item_name, col_key)
@@ -277,8 +287,8 @@ def _extract_table_data(
                 "item_name": item_name,
                 "column_name": col_key,
                 "original_text": str(value_raw),
-                "value": parsed_value["value"],
-                "is_negative": parsed_value["is_negative"],
+                "value": value_to_store,
+                "is_negative": is_negative,
                 "year": year,
                 "section_code": section_code,
                 "table_index": table_idx,

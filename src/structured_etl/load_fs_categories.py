@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Set, Tuple
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id, build_category_id
 from .etl_config import ETLConfig, extract_company_info_from_data
+from .note_utils import normalize_note_cell
 
 
 def extract_category_hierarchy(
@@ -43,6 +44,13 @@ def extract_category_hierarchy(
         # Build category path for deterministic ID
         category_path = build_category_path(clean_name, level, section_code)
 
+        note_cell = row.get("주석")
+        note_refs = (
+            row.get("주석", {}).get("note_numbers", [])
+            if isinstance(row.get("주석"), dict)
+            else []
+        )
+
         categories.append(
             {
                 "name": clean_name,
@@ -50,12 +58,9 @@ def extract_category_hierarchy(
                 "level": level,
                 "path": category_path,
                 "section_code": section_code,
-                "has_notes": bool(row.get("주석")),
-                "note_references": (
-                    row.get("주석", {}).get("note_numbers", [])
-                    if isinstance(row.get("주석"), dict)
-                    else []
-                ),
+                "has_notes": bool(note_cell),
+                "note_references": note_refs,
+                "note_original_value": normalize_note_cell(note_cell),
             }
         )
 
