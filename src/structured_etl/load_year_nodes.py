@@ -169,6 +169,16 @@ def load_year_nodes(session, processed_files: List[Path], config: ETLConfig) -> 
         year_node_id = build_year_node_id(company_name, section_code, year)
         fs_section_id = build_fs_section_id(company_name, section_code)
 
+        # Get section name from section code
+        section_names = {
+            "BS": "재무상태표",
+            "PL": "손익계산서",
+            "CI": "포괄손익계산서",
+            "CF": "현금흐름표",
+            "EQ": "자본변동표",
+        }
+        section_name = section_names.get(section_code, section_code)
+
         # Create YEAR_NODE with data availability metadata
         session.run(
             f"""
@@ -176,12 +186,14 @@ def load_year_nodes(session, processed_files: List[Path], config: ETLConfig) -> 
             ON CREATE SET 
                 yn.{PROPS['year']} = $year,
                 yn.{PROPS['section_code']} = $section_code,
+                yn.section_name = $section_name,
                 yn.{PROPS['company']} = $company_name,
                 yn.has_data = $has_data,
                 yn.data_source_validated = true
             ON MATCH SET
                 yn.{PROPS['year']} = coalesce(yn.{PROPS['year']}, $year),
                 yn.{PROPS['section_code']} = coalesce(yn.{PROPS['section_code']}, $section_code),
+                yn.section_name = coalesce(yn.section_name, $section_name),
                 yn.{PROPS['company']} = coalesce(yn.{PROPS['company']}, $company_name),
                 yn.has_data = coalesce(yn.has_data, $has_data),
                 yn.data_source_validated = true
@@ -190,6 +202,7 @@ def load_year_nodes(session, processed_files: List[Path], config: ETLConfig) -> 
                 "year_node_id": year_node_id,
                 "year": year,
                 "section_code": section_code,
+                "section_name": section_name,
                 "company_name": company_name,
                 "has_data": has_data,
             },
