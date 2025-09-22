@@ -28,8 +28,8 @@ NODE_TYPES: Final[Dict[str, str]] = {
 }
 
 
-# Relationship types (stable)
 RELATIONSHIP_TYPES: Final[Dict[str, str]] = {
+    # Core structural relationships
     "HAS_SUBSIDIARY": "has_subsidiary",
     "HAS_FINANCIAL_STATEMENT": "has_financial_statement",
     "HAS_CATEGORY": "has_category",
@@ -42,12 +42,10 @@ RELATIONSHIP_TYPES: Final[Dict[str, str]] = {
     "LINKS_TO_NOTE": "links_to_note",
     "TREND_TO": "trend_to",
     "RELATED_TO": "related_to",
-    "MAPPED_TO": "mapped_to",
     # Financial relationship types for inter-company transactions
     "INVESTS_IN": "invests_in",  # Investment relationships with amounts
     "TRADES_WITH": "trades_with",  # Sales/purchase transactions
     "OWES_TO": "owes_to",  # Debt/credit relationships
-    "GUARANTEES_FOR": "guarantees_for",  # Guarantee/collateral relationships
 }
 
 
