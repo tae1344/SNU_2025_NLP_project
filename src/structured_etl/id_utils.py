@@ -146,6 +146,45 @@ def build_subsidiary_id(company_name: str, subsidiary_name: str) -> str:
     return make_sha1_id([company_name, subsidiary_name])
 
 
+def build_affiliate_id(company_name: str, affiliate_name: str) -> str:
+    """Generate deterministic ID for AFFILIATE node.
+
+    Args:
+        company_name: Name of the parent company (e.g., "삼성전자")
+        affiliate_name: Name of the affiliate (e.g., "삼성SDI")
+
+    Returns:
+        SHA-1 hash string representing the unique ID
+    """
+    return make_sha1_id([company_name, "affiliate", affiliate_name])
+
+
+def build_joint_venture_id(company_name: str, joint_venture_name: str) -> str:
+    """Generate deterministic ID for JOINT_VENTURE node.
+
+    Args:
+        company_name: Name of the parent company (e.g., "삼성전자")
+        joint_venture_name: Name of the joint venture
+
+    Returns:
+        SHA-1 hash string representing the unique ID
+    """
+    return make_sha1_id([company_name, "joint_venture", joint_venture_name])
+
+
+def build_special_relation_id(company_name: str, special_relation_name: str) -> str:
+    """Generate deterministic ID for SPECIAL_RELATION node.
+
+    Args:
+        company_name: Name of the parent company (e.g., "삼성전자")
+        special_relation_name: Name of the special relation company
+
+    Returns:
+        SHA-1 hash string representing the unique ID
+    """
+    return make_sha1_id([company_name, "special_relation", special_relation_name])
+
+
 def build_concept_id(concept_name: str, concept_category: str = "") -> str:
     """Generate deterministic ID for CONCEPT node.
 

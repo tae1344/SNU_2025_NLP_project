@@ -20,9 +20,10 @@ from .executor import ETLExecutor, BatchConfig
 
 # Import optimized loaders
 from .load_financial_data_optimized import load_financial_data_nodes_optimized
+from .load_financial_trends import load_financial_trends
 
 # Import regular loaders (to be optimized in future)
-from .load_company import load_company_nodes
+from .load_company_enhanced import load_enhanced_company_nodes
 from .load_fs_sections import load_fs_section_nodes
 from .load_fs_categories import load_fs_category_nodes
 from .load_year_nodes import load_year_nodes_with_trends
@@ -99,10 +100,12 @@ def run_optimized_etl(
             apply_schema(session)
             print("✅ Schema applied")
 
-            # 2) Load COMPANY and SUBSIDIARY nodes
-            print("\n🏢 Step 2: Loading COMPANY and SUBSIDIARY nodes...")
-            load_company_nodes(session, files_to_process, etl_config)
-            print("✅ Company nodes loaded")
+            # 2) Load enhanced COMPANY and company relationship nodes
+            print(
+                "\n🏢 Step 2: Loading enhanced COMPANY and company relationship nodes..."
+            )
+            load_enhanced_company_nodes(session, files_to_process, etl_config)
+            print("✅ Enhanced company nodes loaded")
 
             # 3) Load FS_SECTION nodes
             print("\n📊 Step 3: Loading FS_SECTION nodes...")
@@ -123,6 +126,11 @@ def run_optimized_etl(
             print("\n💰 Step 6: Loading FINANCIAL_DATA nodes (OPTIMIZED)...")
             load_financial_data_nodes_optimized(session, files_to_process, etl_config)
             print("✅ Financial data nodes loaded (optimized)")
+
+            # 6.5) Load FINANCIAL_TREND nodes (NEW)
+            print("\n📈 Step 6.5: Loading FINANCIAL_TREND nodes...")
+            load_financial_trends(session, files_to_process, etl_config)
+            print("✅ Financial trend nodes loaded")
 
             # 7) Load AUDIT_INFO and AUDITOR nodes
             print("\n🔍 Step 7: Loading AUDIT_INFO and AUDITOR nodes...")
@@ -168,6 +176,15 @@ def run_optimized_etl(
             counts["subsidiaries"] = session.run(
                 "MATCH (:subsidiary) RETURN count(*) AS count"
             ).single()["count"]
+            counts["affiliates"] = session.run(
+                "MATCH (:affiliate) RETURN count(*) AS count"
+            ).single()["count"]
+            counts["joint_ventures"] = session.run(
+                "MATCH (:joint_venture) RETURN count(*) AS count"
+            ).single()["count"]
+            counts["special_relations"] = session.run(
+                "MATCH (:special_relation) RETURN count(*) AS count"
+            ).single()["count"]
             counts["fs_sections"] = session.run(
                 "MATCH (:financial_statement) RETURN count(*) AS count"
             ).single()["count"]
@@ -179,6 +196,9 @@ def run_optimized_etl(
             ).single()["count"]
             counts["financial_data"] = session.run(
                 "MATCH (:financial_data) RETURN count(*) AS count"
+            ).single()["count"]
+            counts["financial_trends"] = session.run(
+                "MATCH (:financial_trend) RETURN count(*) AS count"
             ).single()["count"]
             counts["auditors"] = session.run(
                 "MATCH (:auditor) RETURN count(*) AS count"
@@ -204,6 +224,9 @@ def run_optimized_etl(
             counts["financial_relationships"] = session.run(
                 "MATCH ()-[r:invests_in|trades_with|owes_to|guarantees_for]->() RETURN count(r) AS count"
             ).single()["count"]
+            counts["company_relationships"] = session.run(
+                "MATCH ()-[r:has_subsidiary|has_affiliate|has_joint_venture|has_special_relation]->() RETURN count(r) AS count"
+            ).single()["count"]
 
             # Calculate total execution time
             total_duration = time.time() - overall_start_time
@@ -215,10 +238,14 @@ def run_optimized_etl(
             print(f"📊 Knowledge Graph Statistics:")
             print(f"   Companies: {counts['company']}")
             print(f"   Subsidiaries: {counts['subsidiaries']}")
+            print(f"   Affiliates: {counts['affiliates']}")
+            print(f"   Joint Ventures: {counts['joint_ventures']}")
+            print(f"   Special Relations: {counts['special_relations']}")
             print(f"   FS Sections: {counts['fs_sections']}")
             print(f"   FS Categories: {counts['fs_categories']}")
             print(f"   Year Nodes: {counts['year_nodes']}")
             print(f"   Financial Data: {counts['financial_data']}")
+            print(f"   Financial Trends: {counts['financial_trends']}")
             print(f"   Auditors: {counts['auditors']}")
             print(f"   Audit Info: {counts['audit_info']}")
             print(f"   Notes: {counts['notes']}")
@@ -227,6 +254,7 @@ def run_optimized_etl(
             print(f"   Search Documents: {counts['search_docs']}")
             print(f"   Trend Links: {counts['trend_links']}")
             print(f"   Financial Relationships: {counts['financial_relationships']}")
+            print(f"   Company Relationships: {counts['company_relationships']}")
 
             # Final optimization
             print("\n⚡ Optimizing database...")

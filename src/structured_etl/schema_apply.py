@@ -3,14 +3,20 @@ from __future__ import annotations
 """Apply comprehensive Neo4j constraints and indexes idempotently.
 
 Reads canonical labels from kg_schema and creates:
-1. Unique constraints on ID for all node types
+1. Unique constraints on ID for all node types (including new company relationship types)
 2. Basic lookup indexes for common query patterns
 3. Full-text search indexes for content search
 4. Composite indexes for complex multi-property queries
+5. Enhanced company relationship indexes (ownership percentage, relationship type)
+6. Financial relationship analysis indexes (investment, trade, debt amounts)
+7. Time-series trend analysis indexes (change rate, volatility, growth rate)
 
 This ensures optimal performance for the Samsung Financial Knowledge Graph
-across all expected query patterns including time-series analysis, 
-text search, and multi-dimensional filtering.
+across all expected query patterns including:
+- Enhanced company relationship analysis (subsidiary, affiliate, joint venture, special relation)
+- Financial relationship tracking (investment, trade, debt, guarantee relationships)
+- Time-series trend analysis and relationship change tracking
+- Multi-dimensional filtering and complex financial queries
 """
 
 from typing import Iterable
@@ -32,6 +38,40 @@ LOOKUP_INDEXES: dict[str, list[tuple[str, str]]] = {
         ("company_type", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
         (
             "ownership_percentage",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+        (
+            "relationship_type",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+    ],
+    # Enhanced company relationship indexes
+    "affiliate": [
+        ("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        (
+            "ownership_percentage",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+        (
+            "relationship_type",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+    ],
+    "joint_venture": [
+        ("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        (
+            "ownership_percentage",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+        (
+            "relationship_type",
+            "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
+        ),
+    ],
+    "special_relation": [
+        ("name", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        (
+            "relationship_type",
             "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})",
         ),
     ],
@@ -88,6 +128,18 @@ LOOKUP_INDEXES: dict[str, list[tuple[str, str]]] = {
         ("term", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
         ("category", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
     ],
+    # Time-series analysis indexes
+    "financial_trend": [
+        ("trend_direction", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("change_rate", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("volatility", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("growth_rate", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+    ],
+    "relationship_change": [
+        ("change_type", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("change_amount", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+        ("change_rate", "CREATE INDEX IF NOT EXISTS FOR (n:{label}) ON (n.{prop})"),
+    ],
 }
 
 
@@ -113,6 +165,19 @@ COMPOSITE_INDEXES: list[str] = [
     "CREATE INDEX search_doc_type_year_idx IF NOT EXISTS FOR (n:search_doc) ON (n.doc_type, n.year)",
     # Category hierarchy: section + category combination
     "CREATE INDEX fs_section_category_idx IF NOT EXISTS FOR (n:fs_category) ON (n.section_code, n.category_name)",
+    # Enhanced company relationship indexes
+    "CREATE INDEX company_relationship_idx IF NOT EXISTS FOR (n:company) ON (n.year, n.relationship_type)",
+    "CREATE INDEX subsidiary_ownership_idx IF NOT EXISTS FOR (n:subsidiary) ON (n.ownership_percentage, n.relationship_type)",
+    "CREATE INDEX affiliate_ownership_idx IF NOT EXISTS FOR (n:affiliate) ON (n.ownership_percentage, n.relationship_type)",
+    "CREATE INDEX joint_venture_ownership_idx IF NOT EXISTS FOR (n:joint_venture) ON (n.ownership_percentage, n.relationship_type)",
+    # Financial relationship analysis indexes
+    "CREATE INDEX investment_year_idx IF NOT EXISTS FOR (n:company) ON (n.year, n.investment_amount)",
+    "CREATE INDEX trade_year_idx IF NOT EXISTS FOR (n:company) ON (n.year, n.trade_amount)",
+    "CREATE INDEX debt_year_idx IF NOT EXISTS FOR (n:company) ON (n.year, n.debt_amount)",
+    # Trend analysis indexes
+    "CREATE INDEX trend_direction_rate_idx IF NOT EXISTS FOR (n:financial_trend) ON (n.trend_direction, n.change_rate)",
+    "CREATE INDEX trend_volatility_idx IF NOT EXISTS FOR (n:financial_trend) ON (n.volatility, n.growth_rate)",
+    "CREATE INDEX relationship_change_idx IF NOT EXISTS FOR (n:relationship_change) ON (n.change_type, n.change_amount)",
 ]
 
 
