@@ -468,24 +468,42 @@ def load_enhanced_company_nodes(
             )
 
             # Create relationship to parent company
-            session.run(
-                f"""
-                MATCH (parent:{NODE_TYPES['COMPANY']} {{ {PROPS['id']}: $parent_id }})
-                MATCH (company:{node_type} {{ {PROPS['id']}: $company_id }})
-                MERGE (parent)-[:{relationship_type} {{
-                    ownership_percentage: $ownership_percentage,
-                    relationship_type: $relationship_type,
-                    source: $source
-                }}]->(company)
-                """,
-                {
-                    "parent_id": company_id,
-                    "company_id": company_node_id,
-                    "ownership_percentage": company["ownership"],
-                    "relationship_type": company["type"],
-                    "source": company["source"],
-                },
-            )
+            # Prepare relationship properties, excluding null values
+            rel_props = {}
+            if company["ownership"] is not None:
+                rel_props["ownership_percentage"] = company["ownership"]
+            if company["type"]:
+                rel_props["relationship_type"] = company["type"]
+            if company["source"]:
+                rel_props["source"] = company["source"]
+
+            # Create the relationship with or without properties
+            if rel_props:
+                props_str = ", ".join([f"{key}: ${key}" for key in rel_props.keys()])
+                rel_props["parent_id"] = company_id
+                rel_props["company_id"] = company_node_id
+
+                session.run(
+                    f"""
+                    MATCH (parent:{NODE_TYPES['COMPANY']} {{ {PROPS['id']}: $parent_id }})
+                    MATCH (company:{node_type} {{ {PROPS['id']}: $company_id }})
+                    MERGE (parent)-[:{relationship_type} {{{props_str}}}]->(company)
+                    """,
+                    rel_props,
+                )
+            else:
+                # Create relationship without properties
+                session.run(
+                    f"""
+                    MATCH (parent:{NODE_TYPES['COMPANY']} {{ {PROPS['id']}: $parent_id }})
+                    MATCH (company:{node_type} {{ {PROPS['id']}: $company_id }})
+                    MERGE (parent)-[:{relationship_type}]->(company)
+                    """,
+                    {
+                        "parent_id": company_id,
+                        "company_id": company_node_id,
+                    },
+                )
 
             total_companies += 1
 

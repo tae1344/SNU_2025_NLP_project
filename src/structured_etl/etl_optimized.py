@@ -20,9 +20,9 @@ from .executor import ETLExecutor, BatchConfig
 
 # Import optimized loaders
 from .load_financial_data_optimized import load_financial_data_nodes_optimized
+from .load_financial_trends import load_financial_trends
 
 # Import regular loaders (to be optimized in future)
-from .load_company import load_company_nodes
 from .load_company_enhanced import load_enhanced_company_nodes
 from .load_fs_sections import load_fs_section_nodes
 from .load_fs_categories import load_fs_category_nodes
@@ -127,6 +127,11 @@ def run_optimized_etl(
             load_financial_data_nodes_optimized(session, files_to_process, etl_config)
             print("✅ Financial data nodes loaded (optimized)")
 
+            # 6.5) Load FINANCIAL_TREND nodes (NEW)
+            print("\n📈 Step 6.5: Loading FINANCIAL_TREND nodes...")
+            load_financial_trends(session, files_to_process, etl_config)
+            print("✅ Financial trend nodes loaded")
+
             # 7) Load AUDIT_INFO and AUDITOR nodes
             print("\n🔍 Step 7: Loading AUDIT_INFO and AUDITOR nodes...")
             load_audit_info_nodes(session, files_to_process, etl_config)
@@ -192,6 +197,9 @@ def run_optimized_etl(
             counts["financial_data"] = session.run(
                 "MATCH (:financial_data) RETURN count(*) AS count"
             ).single()["count"]
+            counts["financial_trends"] = session.run(
+                "MATCH (:financial_trend) RETURN count(*) AS count"
+            ).single()["count"]
             counts["auditors"] = session.run(
                 "MATCH (:auditor) RETURN count(*) AS count"
             ).single()["count"]
@@ -237,6 +245,7 @@ def run_optimized_etl(
             print(f"   FS Categories: {counts['fs_categories']}")
             print(f"   Year Nodes: {counts['year_nodes']}")
             print(f"   Financial Data: {counts['financial_data']}")
+            print(f"   Financial Trends: {counts['financial_trends']}")
             print(f"   Auditors: {counts['auditors']}")
             print(f"   Audit Info: {counts['audit_info']}")
             print(f"   Notes: {counts['notes']}")
