@@ -123,7 +123,13 @@ def _process_section_tables(
             continue
 
         table_nodes, table_rels = _extract_table_data(
-            table_data, columns, section_code, year, company_name, table_idx
+            table_data,
+            columns,
+            section_code,
+            year,
+            company_name,
+            table_idx,
+            table.get("metadata", {}),
         )
         nodes.extend(table_nodes)
         relationships.extend(table_rels)
@@ -228,6 +234,7 @@ def _extract_table_data(
     year: int,
     company_name: str,
     table_idx: int,
+    table_metadata: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Extract financial data from a single table with improved logic."""
     nodes = []
@@ -279,6 +286,39 @@ def _extract_table_data(
                 value_to_store = parsed_value["value"]
                 is_negative = parsed_value["is_negative"]
 
+            # Resolve unit for this cell
+            unit_info = _resolve_cell_unit(
+                row_index=row_idx,
+                column_name=col_key,
+                table_metadata=table_metadata,
+            )
+
+            value_raw = value_to_store if is_note_col else value_to_store
+            value_scaled = value_to_store
+            unit_label = None
+            unit_multiplier = None
+            unit_source = None
+            column_unit = None
+            row_override = False
+
+            if not is_note_col and unit_info:
+                unit_label = unit_info.get("unit")
+                unit_multiplier = unit_info.get("multiplier")
+                unit_source = unit_info.get("source")
+                column_unit = unit_info.get("column_unit")
+                row_override = bool(unit_info.get("row_override"))
+
+                # Scale only for money units with a multiplier
+                if (
+                    isinstance(value_to_store, (int, float))
+                    and unit_info.get("type") == "money"
+                ):
+                    mult = unit_multiplier or 1
+                    try:
+                        value_scaled = float(value_to_store) * float(mult)
+                    except Exception:
+                        value_scaled = float(value_to_store)
+
             # Create node data
             node_id = build_financial_data_id(company_name, year, item_name, col_key)
 
@@ -287,13 +327,20 @@ def _extract_table_data(
                 "item_name": item_name,
                 "column_name": col_key,
                 "original_text": str(value_raw),
-                "value": value_to_store,
+                "value": value_scaled,
+                "value_raw": value_to_store if not is_note_col else None,
                 "is_negative": is_negative,
                 "year": year,
                 "section_code": section_code,
                 "table_index": table_idx,
                 "row_index": row_idx,
                 "column_index": col_idx,
+                # unit metadata
+                "unit": unit_label,
+                "unit_multiplier": unit_multiplier,
+                "unit_source": unit_source,
+                "column_unit": column_unit,
+                "row_override": row_override,
             }
             nodes.append(node_data)
 
@@ -401,6 +448,67 @@ def _parse_financial_value(value_str: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _resolve_cell_unit(
+    row_index: int,
+    column_name: str,
+    table_metadata: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Determine the effective unit for a given cell with precedence:
+    row override > column hint > table base unit.
+
+    Returns a dict including unit info and context flags.
+    """
+    if not table_metadata:
+        return None
+
+    # 1) Row-level override
+    overrides = table_metadata.get("override_units") or {}
+    row_unit = overrides.get(str(row_index)) or overrides.get(row_index)
+    if isinstance(row_unit, dict):
+        info = dict(row_unit)
+        # row overrides apply only to that row
+        info["row_override"] = True
+        # propagate parsed units array if present
+        return info
+
+    # 2) Column-level hint (e.g., shares/percent). Treat as unit source 'column'
+    col_units = table_metadata.get("column_units") or {}
+    col_unit = col_units.get(column_name)
+    if col_unit:
+        # normalize simple hints
+        if col_unit in ("주", "천주"):
+            return {
+                "unit": col_unit,
+                "type": "shares",
+                "multiplier": 1000 if col_unit == "천주" else 1,
+                "source": "column",
+                "column_unit": col_unit,
+                "row_override": False,
+            }
+        if col_unit == "%":
+            return {
+                "unit": "%",
+                "type": "percent",
+                "multiplier": None,
+                "source": "column",
+                "column_unit": "%",
+                "row_override": False,
+            }
+
+    # 3) Table base unit
+    base_unit = table_metadata.get("unit")
+    if isinstance(base_unit, dict):
+        info = dict(base_unit)
+        # Normalize type for downstream logic
+        unit_label = info.get("unit")
+        if unit_label in ("원", "천원", "백만원", "억원"):
+            info["type"] = "money"
+        info["row_override"] = False
+        return info
+
+    return None
+
+
 def batch_process_financial_nodes(session, batch: List[Dict[str, Any]]) -> int:
     """Batch processor for FINANCIAL_DATA nodes."""
     return batch_upsert_nodes(
@@ -413,12 +521,18 @@ def batch_process_financial_nodes(session, batch: List[Dict[str, Any]]) -> int:
             "column_name",
             "original_text",
             "value",
+            "value_raw",
             "is_negative",
             "year",
             "section_code",
             "table_index",
             "row_index",
             "column_index",
+            "unit",
+            "unit_multiplier",
+            "unit_source",
+            "column_unit",
+            "row_override",
         ],
     )
 
