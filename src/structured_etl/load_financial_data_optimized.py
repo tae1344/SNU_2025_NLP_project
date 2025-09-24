@@ -32,7 +32,53 @@ from .executor import (
     batch_upsert_nodes,
     batch_create_relationships,
 )
-from .note_utils import is_note_column, normalize_note_cell
+from .note_utils import (
+    is_note_column,
+    normalize_note_cell,
+    normalize_notes_array,
+    extract_note_numbers,
+)
+from .load_fs_categories import (
+    determine_hierarchy_level,
+    clean_category_name,
+)
+
+
+# --- Column normalization helpers -------------------------------------------------
+def _normalize_period_column_name(column_name: str) -> Optional[str]:
+    """Normalize period-related column names to stable keys.
+
+    Examples:
+        "제 56 (당) 기" -> "당기"
+        "제 56 (당) 기.1" -> "당기"
+        "제55(전)기" -> "전기"
+        "당기" -> "당기"
+        "전기" -> "전기"
+
+    Returns normalized key ("당기"/"전기") or None if not a period column.
+    """
+    key = re.sub(r"\s+", "", column_name)
+    # Strip trailing .N suffixes (e.g., ".1")
+    key = re.sub(r"\.\d+$", "", key)
+    # Direct matches
+    if re.search(r"당기|\(당\)기", key):
+        return "당기"
+    if re.search(r"전기|\(전\)기", key):
+        return "전기"
+    return None
+
+
+def _disambiguate_key(base_key: str, existing: Dict[str, Any]) -> str:
+    """Ensure no overwrites when duplicate normalized period columns exist.
+
+    Produces base_key, base_key_2, base_key_3, ...
+    """
+    if base_key not in existing:
+        return base_key
+    index = 2
+    while f"{base_key}_{index}" in existing:
+        index += 1
+    return f"{base_key}_{index}"
 
 
 def extract_financial_data_optimized(
@@ -67,7 +113,6 @@ def extract_financial_data_optimized(
         print(f"  Processing {file_path.name} (year: {year})...")
 
         sections = data.get("sections", [])
-
         # Per-file cache entry (best-effort)
         cache_entry = fs_tables_cache.get("files", {}).get(file_path.name, {})
 
@@ -108,7 +153,7 @@ def _extract_from_sections(
         # Process subsections recursively
         if "subsections" in section:
             sub_nodes, sub_rels = _extract_from_sections(
-                section["subsections"], year, company_name
+                section["subsections"], year, company_name, cache_entry
             )
             nodes.extend(sub_nodes)
             relationships.extend(sub_rels)
@@ -128,7 +173,6 @@ def _process_section_tables(
 
     section_title = section.get("title", "")
     tables = section.get("tables", [])
-
     # Assume cache exists: Only process Financial Statements section using cached indices
     cached_fs_sections = (cache_entry or {}).get("fs_sections", {})
     if "재 무 제 표" not in section_title or not cached_fs_sections:
@@ -139,11 +183,9 @@ def _process_section_tables(
     for table_idx, table in enumerate(tables):
         if table_idx not in allowed_indices:
             continue
+
         table_data = table.get("data", [])
         columns = table.get("columns", [])
-
-        if len(table_data) < 2 or len(columns) < 2:
-            continue
 
         # Section code from cache mapping
         section_code = index_to_code.get(table_idx)
@@ -165,22 +207,7 @@ def _process_section_tables(
     return nodes, relationships
 
 
-def _get_section_code(section_title: str) -> Optional[str]:
-    """Map section title to standardized section code."""
-    section_title_lower = section_title.lower()
-
-    if "재무상태표" in section_title or "대차대조표" in section_title:
-        return "BS"
-    elif "손익계산서" in section_title or "포괄손익계산서" in section_title:
-        return "PL"
-    elif "현금흐름표" in section_title or "현금흐름" in section_title:
-        return "CF"
-    elif "자본변동표" in section_title or "자본변동" in section_title:
-        return "EQ"
-
-    return None
-
-
+# TODO: =============
 def _extract_table_data(
     table_data: List[Dict[str, Any]],
     columns: List[str],
@@ -194,162 +221,172 @@ def _extract_table_data(
     nodes = []
     relationships = []
 
-    if len(table_data) < 2 or len(columns) < 2:
-        return nodes, relationships
+    # Process each row with category context tracking (row-level node)
+    last_path_by_level: Dict[int, str] = {0: section_code}
+    current_category_path: Optional[str] = None
+    current_level: int = 1
 
-    # Process each row
+    # Build a per-table normalized columns map for period-like keys
+    normalized_columns_map: Dict[str, str] = {}
+    normalized_columns_list: List[str] = []
+
+    if columns:
+        # preserve first column (category key)
+        first_col = columns[0]
+        normalized_columns_list.append(first_col)
+        for col_key in columns[1:]:
+            norm_key = _normalize_period_column_name(col_key) or col_key
+            normalized_columns_map[col_key] = norm_key
+            # keep unique order for normalized columns
+            if norm_key not in normalized_columns_list:
+                normalized_columns_list.append(norm_key)
+
     for row_idx, row in enumerate(table_data):
-        # Try multiple columns for item name
-        item_name = None
-        for key in ["과 목", "0"]:  # Try "과 목" first, then "0"
-            item_candidate = row.get(key, "")
-            if (
-                item_candidate
-                and isinstance(item_candidate, str)
-                and len(item_candidate.strip()) >= 2
-            ):
-                item_name = item_candidate.strip()
+        # Source cell for both category context and item naming
+        raw_cell = None
+        for key in ["과 목", "0"]:
+            v = row.get(key, "")
+            if isinstance(v, str) and v.strip():
+                raw_cell = v.strip()
                 break
+
+        # Update category context if present
+        if raw_cell:
+            lvl = determine_hierarchy_level(raw_cell, section_code)
+            cleaned_title = clean_category_name(raw_cell)
+            parent_level = max(0, lvl - 1)
+            parent_path = last_path_by_level.get(parent_level, section_code)
+            cat_path = f"{parent_path}>{cleaned_title}"
+            last_path_by_level[lvl] = cat_path
+            # prune deeper levels
+            for lv in list(last_path_by_level.keys()):
+                if lv > lvl:
+                    last_path_by_level.pop(lv, None)
+            current_category_path = cat_path
+            current_level = lvl
+
+        item_name = cleaned_title
 
         if not item_name:
             continue
 
-        # Skip header rows
-        if _is_header_row(item_name):
-            continue
+        # Build row-level values and notes
+        values: Dict[str, Any] = {}
+        notes_normalized: Optional[Any] = None
+        unit_label = None
+        unit_multiplier = None
+        unit_source = None
+        column_units: Dict[str, Any] = {}
 
-        # Process each column (skip first column which is item name)
         for col_idx, col_key in enumerate(columns[1:], 1):
-            value_raw = row.get(col_key, "")
-
-            # Skip empty values
-            if not value_raw and value_raw != 0:
+            cell = row.get(col_key, "")
+            if not cell and cell != 0:
                 continue
-
-            # If this is a note reference column, keep as string to avoid 21,22 -> 2122 numeric merge
-            is_note_col = is_note_column(col_key)
-            if is_note_col:
-                # Render structured note objects or plain strings consistently
-                value_to_store = normalize_note_cell(value_raw)
-                is_negative = False
-            else:
-                # Parse numerical value
-                parsed_value = _parse_financial_value(value_raw)
-                if parsed_value is None:
-                    continue
-                value_to_store = parsed_value["value"]
-                is_negative = parsed_value["is_negative"]
-
-            # Resolve unit for this cell
-            unit_info = _resolve_cell_unit(
-                row_index=row_idx,
-                column_name=col_key,
-                table_metadata=table_metadata,
+            if is_note_column(col_key):
+                notes_normalized = normalize_note_cell(cell)
+                continue
+            parsed = _parse_financial_value(cell)
+            if parsed is None:
+                continue
+            # Use table-level normalized column key
+            normalized_key = normalized_columns_map.get(col_key, col_key)
+            # Resolve unit info for context (optional, non-blocking)
+            unit_info = (
+                _resolve_cell_unit(
+                    row_index=row_idx,
+                    column_name=col_key,
+                    table_metadata=table_metadata,
+                )
+                or {}
             )
-
-            value_raw = value_to_store if is_note_col else value_to_store
-            value_scaled = value_to_store
-            unit_label = None
-            unit_multiplier = None
-            unit_source = None
-            column_unit = None
-            row_override = False
-
-            if not is_note_col and unit_info:
+            if not unit_label and unit_info:
                 unit_label = unit_info.get("unit")
                 unit_multiplier = unit_info.get("multiplier")
                 unit_source = unit_info.get("source")
-                column_unit = unit_info.get("column_unit")
-                row_override = bool(unit_info.get("row_override"))
+            if unit_info.get("column_unit"):
+                column_units[normalized_key] = unit_info.get("column_unit")
+            value_to_store = parsed["value"]
+            # Apply scaling if needed
+            if (
+                isinstance(value_to_store, (int, float))
+                and unit_info.get("type") == "money"
+            ):
+                try:
+                    mult = float(unit_info.get("multiplier") or 1)
+                    value_to_store = float(value_to_store) * mult
+                except Exception:
+                    pass
+            # Ensure integer consistency for numeric values
+            if isinstance(value_to_store, (int, float)):
+                try:
+                    value_to_store = int(round(float(value_to_store)))
+                except Exception:
+                    value_to_store = (
+                        int(value_to_store)
+                        if not isinstance(value_to_store, int)
+                        else value_to_store
+                    )
+            values[normalized_key] = value_to_store
 
-                # Scale only for money units with a multiplier
-                if (
-                    isinstance(value_to_store, (int, float))
-                    and unit_info.get("type") == "money"
-                ):
-                    mult = unit_multiplier or 1
-                    try:
-                        value_scaled = float(value_to_store) * float(mult)
-                    except Exception:
-                        value_scaled = float(value_to_store)
+        # If row has no numeric values and no notes, skip
+        if not values and notes_normalized is None:
+            continue
+        # Create a single row-level node
+        node_id = build_financial_data_id(company_name, year, item_name, section_code)
+        # Extract primitive period values for indexing/queries
+        values_current = values.get("당기") if values else None
+        values_previous = values.get("전기") if values else None
+        # Normalize notes to array of strings
+        notes_array = normalize_notes_array(notes_normalized)
+        node_data = {
+            "id": node_id,
+            "item_name": item_name,
+            "year": year,
+            "section_code": section_code,
+            "table_index": table_idx,
+            "row_index": row_idx,
+            "category_path": current_category_path,
+            "hierarchy_level": current_level,
+            # row-level aggregates
+            "columns": normalized_columns_list or columns,
+            "values_json": json.dumps(values, ensure_ascii=False) if values else None,
+            "notes": notes_array,
+            # flattened primitives for fast queries/indexing
+            "values_current": values_current,
+            "values_previous": values_previous,
+            # unit metadata (best-effort)
+            "unit": unit_label,
+            "unit_multiplier": unit_multiplier,
+            "unit_source": unit_source,
+            "column_units_json": (
+                json.dumps(column_units, ensure_ascii=False) if column_units else None
+            ),
+        }
+        nodes.append(node_data)
 
-            # Create node data
-            node_id = build_financial_data_id(company_name, year, item_name, col_key)
-
-            node_data = {
-                "id": node_id,
-                "item_name": item_name,
-                "column_name": col_key,
-                "original_text": str(value_raw),
-                "value": value_scaled,
-                "value_raw": value_to_store if not is_note_col else None,
-                "is_negative": is_negative,
-                "year": year,
-                "section_code": section_code,
-                "table_index": table_idx,
-                "row_index": row_idx,
-                "column_index": col_idx,
-                # unit metadata
-                "unit": unit_label,
-                "unit_multiplier": unit_multiplier,
-                "unit_source": unit_source,
-                "column_unit": column_unit,
-                "row_override": row_override,
-            }
-            nodes.append(node_data)
-
-            # Create relationship to YEAR_NODE
-            year_node_id = build_year_node_id(company_name, section_code, year)
-            rel_data = {
+        # Relationships
+        year_node_id = build_year_node_id(company_name, section_code, year)
+        relationships.append(
+            {
                 "from_id": year_node_id,
                 "to_id": node_id,
                 "relationship_type": RELATIONSHIP_TYPES["CONTAINS_DATA"],
             }
-            relationships.append(rel_data)
+        )
+        if current_category_path:
+            category_id = build_category_id(
+                company_name, section_code, current_category_path
+            )
+            relationships.append(
+                {
+                    "from_id": category_id,
+                    "to_id": node_id,
+                    "relationship_type": RELATIONSHIP_TYPES["RELATED_TO"],
+                }
+            )
 
+    # for node in nodes:
     return nodes, relationships
-
-
-def _is_header_row(item_name: str) -> bool:
-    """Check if a row is a header row that should be skipped."""
-    header_patterns = [
-        "항목",
-        "구분",
-        "계정",
-        "단위",
-        "백만원",
-        "천원",
-        "원",
-        "당기",
-        "전기",
-        "기말",
-        "기초",
-        "증감",
-        "합계",
-        "소계",
-    ]
-
-    item_lower = item_name.lower()
-
-    # "과목" 패턴은 더 정확하게 매칭
-    if "과목" in item_lower:
-        # "과목"이 단독으로 나타나거나 "항목"과 함께 나타날 때만 헤더로 인식
-        if item_lower.strip() == "과목" or "항목" in item_lower:
-            return True
-        # "매출원가" 같은 실제 재무 항목은 헤더가 아님
-        if any(
-            term in item_lower
-            for term in ["매출", "자산", "부채", "수익", "비용", "이익"]
-        ):
-            return False
-
-    # 로마숫자로 시작하는 항목들은 실제 재무 항목 (헤더가 아님)
-    if item_name.strip().startswith(("Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ", "Ⅸ", "Ⅹ")):
-        return False
-
-    return (
-        any(pattern in item_lower for pattern in header_patterns) or len(item_name) < 3
-    )
 
 
 def _parse_financial_value(value_str: str) -> Optional[Dict[str, Any]]:
@@ -472,21 +509,21 @@ def batch_process_financial_nodes(session, batch: List[Dict[str, Any]]) -> int:
         id_property="id",
         properties=[
             "item_name",
-            "column_name",
-            "original_text",
-            "value",
-            "value_raw",
-            "is_negative",
             "year",
             "section_code",
             "table_index",
             "row_index",
-            "column_index",
+            "category_path",
+            "hierarchy_level",
+            "columns",
+            "values_json",
+            "notes",
+            "values_current",
+            "values_previous",
             "unit",
             "unit_multiplier",
             "unit_source",
-            "column_unit",
-            "row_override",
+            "column_units_json",
         ],
     )
 
