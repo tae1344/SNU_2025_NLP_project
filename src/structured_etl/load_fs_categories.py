@@ -7,6 +7,7 @@ and creates nested category structures for BS/PL/CI/CF/EQ sections.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
@@ -19,7 +20,7 @@ from .etl_config import (
     DEFAULT_CONFIG,
 )
 from .note_utils import normalize_note_cell
-from .taxonomy_config import BS_TOP_LEVEL_PATTERNS
+from .taxonomy_config import BS_TOP_LEVEL_PATTERNS, EQ_TOP_LEVEL_PATTERNS
 
 # "매 출",
 # "영업이익",
@@ -49,6 +50,15 @@ KOREAN_ALPHAS = [
     "파.",
     "하.",
 ]
+
+
+def _has_numbering_prefix(name: str) -> bool:
+    """Return True if the name starts with any numbering prefix (Roman, numeric, Korean alpha)."""
+    return (
+        any(name.startswith(roman) for roman in ROMAN_NUMERALS)
+        or any(name.startswith(i) for i in NUMBERS)
+        or any(name.startswith(letter) for letter in KOREAN_ALPHAS)
+    )
 
 
 def extract_category_hierarchy(
@@ -107,15 +117,24 @@ def determine_hierarchy_level(category_name: str, section_code: str) -> int:
     name = category_name.strip()
 
     # Level 1: Top-level section headers (자산, 부채, 자본, etc.)
-    top_level_patterns = BS_TOP_LEVEL_PATTERNS
-
+    # - BS patterns are plain tokens (substring match)
+    # - EQ patterns are regex strings (date labels like 2024.12.31(당기말))
     # Check if it's a standalone top-level category (no numbering)
     name_clean = name.lower().replace(" ", "")
-    for pattern in top_level_patterns:
-        pattern_clean = pattern.replace(" ", "")
-        if pattern_clean in name_clean and not any(
-            prefix in name for prefix in ROMAN_NUMERALS + NUMBERS + KOREAN_ALPHAS
-        ):
+
+    # First, match EQ regex patterns (date labels should be top-level regardless of numbering)
+    for regex_pattern in EQ_TOP_LEVEL_PATTERNS:
+        try:
+            if re.search(regex_pattern, name):
+                return 1
+        except re.error:
+            # If an EQ pattern is malformed, ignore and continue
+            continue
+
+    # Then, match BS token patterns by substring
+    for token in BS_TOP_LEVEL_PATTERNS:
+        token_clean = token.replace(" ", "")
+        if token_clean in name_clean and not _has_numbering_prefix(name):
             return 1
 
     # Level 2: Roman numerals indicate major sections
@@ -210,8 +229,6 @@ def load_fs_category_nodes(
 
             for table_idx, table in enumerate(tables):
                 if table_idx not in allowed_indices:
-                    continue
-                if not table.get("metadata", {}).get("is_financial_table", False):
                     continue
 
                 table_data = table.get("data", [])
@@ -431,9 +448,6 @@ if __name__ == "__main__":
                 for table_idx, table in enumerate(tables):
                     if table_idx not in index_to_code:
                         continue
-                    if not table.get("metadata", {}).get("is_financial_table", False):
-                        continue
-
                     table_data = table.get("data", [])
                     if not table_data or "과 목" not in table_data[0]:
                         continue
@@ -448,8 +462,6 @@ if __name__ == "__main__":
                         print(
                             f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
                         )
-                    if len(categories) > 5:
-                        print(f"  ... and {len(categories) - 5} more")
 
         print(f"\nTotal categories found: {categories_found}")
     else:
