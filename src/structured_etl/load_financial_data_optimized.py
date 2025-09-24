@@ -541,6 +541,19 @@ def batch_process_financial_relationships(session, batch: List[Dict[str, Any]]) 
     )
 
 
+def batch_process_category_relationships(session, batch: List[Dict[str, Any]]) -> int:
+    """Batch processor for FS_CATEGORY -> FINANCIAL_DATA RELATED_TO relationships."""
+    return batch_create_relationships(
+        session=session,
+        batch=batch,
+        from_label=NODE_TYPES["FS_CATEGORY"],
+        to_label=NODE_TYPES["FINANCIAL_DATA"],
+        relationship_type=RELATIONSHIP_TYPES["RELATED_TO"],
+        from_id_property="from_id",
+        to_id_property="to_id",
+    )
+
+
 def load_financial_data_nodes_optimized(
     session, processed_files: List[Path], config: ETLConfig
 ) -> None:
@@ -573,12 +586,30 @@ def load_financial_data_nodes_optimized(
         batch_processor=batch_process_financial_nodes,
     )
 
-    # Process relationships
+    # Split and process relationships by type
+    contains_rels = [
+        r
+        for r in relationship_data
+        if r.get("relationship_type") == RELATIONSHIP_TYPES["CONTAINS_DATA"]
+    ]
+    category_rels = [
+        r
+        for r in relationship_data
+        if r.get("relationship_type") == RELATIONSHIP_TYPES["RELATED_TO"]
+    ]
+
     rel_metrics = executor.execute_batch_operation(
         session=session,
         operation_name="CONTAINS_DATA Relationships",
-        data_items=relationship_data,
+        data_items=contains_rels,
         batch_processor=batch_process_financial_relationships,
+    )
+
+    cat_rel_metrics = executor.execute_batch_operation(
+        session=session,
+        operation_name="RELATED_TO Relationships",
+        data_items=category_rels,
+        batch_processor=batch_process_category_relationships,
     )
 
     # Summary
@@ -588,8 +619,9 @@ def load_financial_data_nodes_optimized(
         f"({node_metrics.success_rate:.1f}% success)"
     )
     print(
-        f"   Relationships: {rel_metrics.processed_items}/{rel_metrics.total_items} "
-        f"({rel_metrics.success_rate:.1f}% success)"
+        f"   Relationships: {rel_metrics.processed_items + cat_rel_metrics.processed_items}/"
+        f"{rel_metrics.total_items + cat_rel_metrics.total_items} "
+        f"(contains: {rel_metrics.processed_items}, related_to: {cat_rel_metrics.processed_items})"
     )
     print(
         f"   Total time: {node_metrics.duration_seconds + rel_metrics.duration_seconds:.2f}s"
