@@ -12,115 +12,34 @@ from typing import Any, Dict, List, Set, Tuple
 
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id, build_year_node_id
-from .etl_config import ETLConfig, extract_company_info_from_data
+from .etl_config import (
+    ETLConfig,
+    extract_company_info_from_data,
+    read_fs_tables_cache,
+)
 
 
-def detect_actual_sections_in_data(data: Dict[str, Any]) -> Set[str]:
-    """Detect which financial statement sections actually have data.
+def detect_actual_sections_in_data(file_key: str) -> Set[str]:
+    """Detect which financial statement sections actually have data using cache.
 
-    Args:
-        data: Processed JSON data from audit report
-
-    Returns:
-        Set of section codes that have actual data
+    This refactoring uses fs_tables_index.json to determine the sections with
+    identified tables for the given file, avoiding ad-hoc re-parsing.
     """
-    sections = data.get("sections", [])
-    actual_sections = set()
+    actual_sections: Set[str] = set()
 
-    # Find the financial statements section
-    fs_section = None
-    for section in sections:
-        if "재 무 제 표" in section.get("title", ""):
-            fs_section = section
-            break
-
-    if not fs_section:
+    # Identify file key (processed JSON filename)
+    if not file_key:
+        # Fallback: cannot map to cache without filename
         return actual_sections
 
-    tables = fs_section.get("tables", [])
-    financial_tables = [
-        table
-        for table in tables
-        if table.get("metadata", {}).get("is_financial_table", False)
-    ]
+    # Read cache and get per-file entry
+    cache = read_fs_tables_cache()
+    entry = (cache or {}).get("files", {}).get(file_key, {})
+    fs_sections = entry.get("fs_sections", {})
 
-    # Analyze each financial table to determine section type
-    for table in financial_tables:
-        table_data = table.get("data", [])
-        if not table_data or "과 목" not in table_data[0]:
-            continue
-
-        # Collect category names for section classification
-        all_categories = []
-        for row in table_data[:15]:
-            category = row.get("과 목", "").strip()
-            if category:
-                all_categories.append(category.lower())
-
-        all_text = " ".join(all_categories)
-
-        # Use hierarchical classification with proper exclusion rules
-        # (Same logic as improved load_fs_categories.py)
-
-        # 1. Balance Sheet - very distinctive asset/liability structure
-        bs_indicators = ["자 산", "부 채"]
-        bs_structure = ["유동자산", "비유동자산", "유동부채", "비유동부채"]
-
-        if any(indicator in all_text for indicator in bs_indicators):
-            # Strong BS indicators present
-            if any(struct in all_text for struct in bs_structure):
-                actual_sections.add("BS")
-                continue
-            elif all_text.count("자 산") > 1 or all_text.count("부 채") > 1:
-                actual_sections.add("BS")
-                continue
-
-        # 2. Cash Flow - highly distinctive activity-based structure
-        cf_activities = ["영업활동", "투자활동", "재무활동"]
-        if sum(1 for activity in cf_activities if activity in all_text) >= 2:
-            actual_sections.add("CF")
-            continue
-        elif "현금흐름" in all_text:
-            actual_sections.add("CF")
-            continue
-
-        # 3. Equity - specific equity terms
-        eq_core = ["자본금", "이익잉여금"]
-        eq_indicators = ["자본에 직접 인식", "주주와의 거래", "자본변동"]
-
-        if any(core in all_text for core in eq_core):
-            actual_sections.add("EQ")
-            continue
-        elif any(indicator in all_text for indicator in eq_indicators):
-            actual_sections.add("EQ")
-            continue
-
-        # 4. Comprehensive Income - specific comprehensive income terms
-        # Must be dominant theme, not just mentioned
-        ci_core = ["포괄손익", "기타포괄손익", "총포괄손익"]
-        ci_count = sum(1 for term in ci_core if term in all_text)
-
-        # Check if CI is the main theme (not just mentioned in BS context)
-        if ci_count >= 2:  # Multiple CI terms
-            actual_sections.add("CI")
-            continue
-        elif (
-            "포괄손익" in all_text
-            and "자 산" not in all_text
-            and "부 채" not in all_text
-        ):
-            actual_sections.add("CI")
-            continue
-
-        # 5. Profit & Loss - general income statement (fallback for income-related)
-        pl_indicators = ["매 출", "영업이익", "매출액", "매출원가"]
-        if any(indicator in all_text for indicator in pl_indicators):
-            # Only classify as PL if not clearly another type
-            if not any(
-                term in all_text for term in ["자 산", "부 채", "영업활동", "자본금"]
-            ):
-                actual_sections.add("PL")
-                continue
+    # Sections present in cache have data
+    for code in fs_sections.keys():
+        actual_sections.add(code)
 
     return actual_sections
 
@@ -147,8 +66,8 @@ def load_year_nodes(session, processed_files: List[Path], config: ETLConfig) -> 
         company_info = extract_company_info_from_data(data)
         year = company_info["year"]
 
-        # Detect which sections actually have data
-        actual_sections = detect_actual_sections_in_data(data)
+        # Detect which sections actually have data (via cache)
+        actual_sections = detect_actual_sections_in_data(file_path.name)
 
         # Create entries for all configured sections
         for section_code in config.fs_sections:
