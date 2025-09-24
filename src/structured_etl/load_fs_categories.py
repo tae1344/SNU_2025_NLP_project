@@ -14,7 +14,37 @@ from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id, build_category_id
 from .etl_config import ETLConfig, extract_company_info_from_data
 from .note_utils import normalize_note_cell
+from .taxonomy_config import BS_TOP_LEVEL_PATTERNS
 
+# "매 출",
+# "영업이익",
+# "당기순이익",
+# "영업활동",
+# "투자활동",
+# "재무활동",
+# "포괄손익",
+# "총포괄손익",
+
+
+
+ROMAN_NUMERALS = ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ.", "Ⅷ.", "Ⅸ.", "Ⅹ."]
+NUMBERS = ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10."]
+KOREAN_ALPHAS = [
+    "가.",
+    "나.",
+    "다.",
+    "라.",
+    "마.",
+    "바.",
+    "사.",
+    "아.",
+    "자.",
+    "차.",
+    "카.",
+    "타.",
+    "파.",
+    "하.",
+]
 
 def extract_category_hierarchy(
     table_data: List[Dict[str, Any]], section_code: str
@@ -72,45 +102,27 @@ def determine_hierarchy_level(category_name: str, section_code: str) -> int:
     name = category_name.strip()
 
     # Level 1: Top-level section headers (자산, 부채, 자본, etc.)
-    top_level_patterns = [
-        "자 산",
-        "부 채",
-        "자 본",
-        "자본",
-        "매 출",
-        "영업이익",
-        "당기순이익",
-        "영업활동",
-        "투자활동",
-        "재무활동",
-        "포괄손익",
-        "총포괄손익",
-    ]
+    top_level_patterns = BS_TOP_LEVEL_PATTERNS
 
     # Check if it's a standalone top-level category (no numbering)
     name_clean = name.lower().replace(" ", "")
     for pattern in top_level_patterns:
         pattern_clean = pattern.replace(" ", "")
         if pattern_clean in name_clean and not any(
-            prefix in name for prefix in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "1.", "2.", "가.", "나."]
+            prefix in name for prefix in ROMAN_NUMERALS + NUMBERS + KOREAN_ALPHAS
         ):
             return 1
 
     # Level 2: Roman numerals indicate major sections
-    if any(
-        roman in name
-        for roman in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ.", "Ⅷ.", "Ⅸ.", "Ⅹ."]
-    ):
+    if any(roman in name for roman in ROMAN_NUMERALS):
         return 2
 
     # Level 3: Numbers indicate subsections
-    if any(
-        name.startswith(f"{i}. ") for i in range(1, 50)
-    ):  # Extended range for more items
+    if any(name.startswith(i) for i in NUMBERS):  # Extended range for more items
         return 3
 
     # Level 4: Korean letters indicate sub-subsections
-    if any(name.startswith(f"{letter}. ") for letter in "가나다라마바사아자차카타파하"):
+    if any(name.startswith(letter) for letter in KOREAN_ALPHAS):
         return 4
 
     # Level 5: Detailed sub-items (often indented or have specific patterns)
@@ -125,16 +137,16 @@ def clean_category_name(name: str) -> str:
     """Clean category name by removing formatting characters."""
     # Remove Roman numerals and numbers
     cleaned = name
-    for roman in ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ."]:
+    for roman in ROMAN_NUMERALS:
         cleaned = cleaned.replace(roman, "").strip()
 
     # Remove number prefixes
-    for i in range(1, 20):
-        cleaned = cleaned.replace(f"{i}. ", "").strip()
+    for i in NUMBERS:
+        cleaned = cleaned.replace(f"{i} ", "").strip()
 
     # Remove letter prefixes
-    for letter in "가나다라마바사아자차카타파하":
-        cleaned = cleaned.replace(f"{letter}. ", "").strip()
+    for letter in KOREAN_ALPHAS:
+        cleaned = cleaned.replace(f"{letter} ", "").strip()
 
     # Clean up spacing
     cleaned = " ".join(cleaned.split())
@@ -160,7 +172,7 @@ def load_fs_category_nodes(
         config: ETL configuration
     """
     company_name = config.company_name
-    company_id = build_company_id(company_name)
+    company_id = build_company_id(company_name)  # TODO : 회사 id가 중복 생성되는지 체크
 
     all_categories: Dict[Tuple[str, str], Dict[str, Any]] = (
         {}
@@ -301,7 +313,7 @@ def determine_section_from_table(table_data: List[Dict[str, Any]]) -> str:
     # Hierarchical classification with exclusion rules
 
     # 1. Balance Sheet - very distinctive asset/liability structure
-    bs_indicators = ["자 산", "부 채"]
+    bs_indicators = BS_TOP_LEVEL_PATTERNS
     bs_structure = ["유동자산", "비유동자산", "유동부채", "비유동부채"]
 
     if any(indicator in all_text for indicator in bs_indicators):
@@ -339,7 +351,7 @@ def determine_section_from_table(table_data: List[Dict[str, Any]]) -> str:
         return "CI"  # CI mentioned without BS context
 
     # 5. Profit & Loss - general income statement (fallback for income-related)
-    pl_indicators = ["매 출", "영업이익", "매출액", "매출원가"]
+    pl_indicators = ["매 출 액", "영업이익", "매출액", "매출원가", "매 출 원 가", "영 업 이 익", "당기순이익", "주당이익"]
     if any(indicator in all_text for indicator in pl_indicators):
         # Only classify as PL if not clearly another type
         if not any(
@@ -356,7 +368,7 @@ if __name__ == "__main__":
 
     config = DEFAULT_CONFIG
     # Use only recent files for testing
-    recent_years = [2022, 2023, 2024]
+    recent_years = [2024]
     available_files = config.get_processed_files(recent_years)
 
     if available_files:
@@ -387,7 +399,7 @@ if __name__ == "__main__":
                         print(
                             f"\n=== {section_code} Categories ({len(categories)} found) ==="
                         )
-                        for cat in categories[:5]:  # Show first 5
+                        for cat in categories[:]:  # Show first 5
                             print(
                                 f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
                             )
