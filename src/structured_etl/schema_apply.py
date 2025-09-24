@@ -157,6 +157,8 @@ FULLTEXT_INDEXES: list[str] = [
 COMPOSITE_INDEXES: list[str] = [
     # Time-series analysis: year + section combination
     "CREATE INDEX year_section_idx IF NOT EXISTS FOR (n:year_node) ON (n.year, n.section_code)",
+    # Year node: company + year + section for fast lookups
+    "CREATE INDEX year_company_section_idx IF NOT EXISTS FOR (n:year_node) ON (n.company, n.year, n.section_code)",
     # Financial data analysis: item + year combination
     "CREATE INDEX financial_item_year_idx IF NOT EXISTS FOR (n:financial_data) ON (n.item_name, n.year)",
     # Note analysis: year + category combination

@@ -135,6 +135,16 @@ PROPS: Final[Dict[str, str]] = {
 }
 
 
+# Centralized section code → display name mapping (reused across loaders)
+SECTION_CODE_TO_NAME: Final[Dict[str, str]] = {
+    "BS": "재무상태표",
+    "PL": "손익계산서",
+    "CI": "포괄손익계산서",
+    "CF": "현금흐름표",
+    "EQ": "자본변동표",
+}
+
+
 def ensure_required_properties(
     data: Mapping[str, object], required: Iterable[str]
 ) -> None:

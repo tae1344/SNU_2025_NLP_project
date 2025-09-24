@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
+from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS, SECTION_CODE_TO_NAME
 from .id_utils import build_company_id, build_fs_section_id, build_year_node_id
 from .etl_config import (
     ETLConfig,
@@ -88,15 +88,8 @@ def load_year_nodes(session, processed_files: List[Path], config: ETLConfig) -> 
         year_node_id = build_year_node_id(company_name, section_code, year)
         fs_section_id = build_fs_section_id(company_name, section_code)
 
-        # Get section name from section code
-        section_names = {
-            "BS": "재무상태표",
-            "PL": "손익계산서",
-            "CI": "포괄손익계산서",
-            "CF": "현금흐름표",
-            "EQ": "자본변동표",
-        }
-        section_name = section_names.get(section_code, section_code)
+        # Get section name from centralized schema mapping
+        section_name = SECTION_CODE_TO_NAME.get(section_code, section_code)
 
         # Create YEAR_NODE with data availability metadata
         session.run(
