@@ -74,6 +74,9 @@ def extract_category_hierarchy(
         List of category info dicts with hierarchy paths
     """
     categories = []
+    # Track hierarchical context: level -> full path built so far
+    # Level 1 parent is the section root
+    last_path_by_level: Dict[int, str] = {0: section_code}
 
     for row in table_data:
         category_name = row.get("과 목", "").strip()
@@ -86,8 +89,15 @@ def extract_category_hierarchy(
         # Clean category name
         clean_name = clean_category_name(category_name)
 
-        # Build category path for deterministic ID
-        category_path = build_category_path(clean_name, level, section_code)
+        # Build hierarchical path using nearest parent level
+        parent_level = max(0, level - 1)
+        parent_path = last_path_by_level.get(parent_level, section_code)
+        category_path = f"{parent_path}>{clean_name}"
+        # Update context: current level path, and discard deeper stale levels
+        last_path_by_level[level] = category_path
+        for lv in list(last_path_by_level.keys()):
+            if lv > level:
+                last_path_by_level.pop(lv, None)
 
         note_cell = row.get("주석")
         note_refs = (
@@ -96,16 +106,20 @@ def extract_category_hierarchy(
             else []
         )
 
+        # Build search keys from full and parent paths
+        search_keys = _build_search_keys(category_path, parent_path)
+
         categories.append(
             {
                 "name": clean_name,
                 "original_name": category_name,
                 "level": level,
                 "path": category_path,
+                "parent_path": parent_path,
                 "section_code": section_code,
                 "has_notes": bool(note_cell),
                 "note_references": note_refs,
-                "note_original_value": normalize_note_cell(note_cell),
+                **search_keys,
             }
         )
 
@@ -175,6 +189,20 @@ def clean_category_name(name: str) -> str:
     # Clean up spacing
     cleaned = " ".join(cleaned.split())
 
+    # If text is spaced one-character tokens (e.g., "자 산" -> ["자","산"]) join without spaces
+    tokens = cleaned.split(" ") if cleaned else []
+    if tokens and all(len(t) == 1 for t in tokens):
+        cleaned = "".join(tokens)
+
+    # Join spaced Hangul sequences anywhere in the string, including inside parentheses
+    # Examples:
+    #  - "영 업 이 익 (손 실)" -> "영업이익(손실)"
+    #  - "법 인 세 비 용(수 익)" -> "법인세비용(수익)"
+    cleaned = re.sub(r"\(\s+", "(", cleaned)
+    cleaned = re.sub(r"\s+\)", ")", cleaned)
+    cleaned = re.sub(r"(?<=\b)([가-힣])\s+(?=[가-힣])", "", cleaned)
+    # Repeat join to catch longer chains of spaced Hangul
+    cleaned = re.sub(r"(?<=\b)([가-힣])\s+(?=[가-힣])", "", cleaned)
     return cleaned
 
 
@@ -183,6 +211,57 @@ def build_category_path(name: str, level: int, section_code: str) -> str:
     # For now, use simple path structure
     # In production, this would maintain parent-child relationships
     return f"{section_code}>{name}"
+
+
+def _normalize_component(text: str) -> str:
+    """Normalize a single category component into a search-friendly slug.
+
+    - Lowercase
+    - Collapse whitespace to single underscores
+    - Remove brackets and most punctuation
+    - Keep Korean letters and ASCII alphanumerics
+    """
+    t = (text or "").strip().lower()
+    # Replace whitespace with underscores
+    t = "_".join(t.split())
+    # Remove common brackets and quotes
+    t = re.sub(r"[\(\)\[\]\{\}\"\'`]+", "", t)
+    # Replace remaining non-word chars (except underscores) with nothing
+    t = re.sub(r"[^0-9a-z가-힣_]", "", t)
+    # Collapse multiple underscores
+    t = re.sub(r"_+", "_", t).strip("_")
+    return t
+
+
+def _build_search_keys(full_path: str, parent_path: str) -> Dict[str, Any]:
+    """Build search-friendly keys for full and parent paths.
+
+    - path_normalized: normalized full path (lowercased + slugged components joined by '>')
+    - path_tokens: space-separated tokens for fulltext search
+    - path_key: compact full path removing non-alphanumerics except '>'
+    - parent_path_normalized: normalized parent path
+    """
+
+    def norm_path(p: str) -> Tuple[str, str, str]:
+        if not p:
+            return "", "", ""
+        parts = [s.strip() for s in p.split(">") if s.strip()]
+        # normalize each component
+        norm_parts = [_normalize_component(s) for s in parts]
+        path_normalized = ">".join(norm_parts)
+        path_tokens = " ".join(norm_parts)
+        compact = ">".join(re.sub(r"[^0-9a-z가-힣]", "", s) for s in norm_parts)
+        return path_normalized, path_tokens, compact
+
+    fp_norm, fp_tokens, fp_compact = norm_path(full_path)
+    pp_norm, _, _ = norm_path(parent_path)
+
+    return {
+        "path_normalized": fp_norm,
+        "path_tokens": fp_tokens,
+        "path_key": fp_compact,
+        "parent_path_normalized": pp_norm,
+    }
 
 
 def load_fs_category_nodes(
@@ -337,6 +416,7 @@ def load_fs_category_nodes(
 
     print(f"✅ Created/updated {created_count} FS category nodes and relationships")
 
+
 if __name__ == "__main__":
     # Test extraction with available files
     config = DEFAULT_CONFIG
@@ -385,6 +465,8 @@ if __name__ == "__main__":
                     print(
                         f"\n=== {section_code} Categories ({len(categories)} found) ==="
                     )
+
+                    print(f"categories: {categories[3]}\n")
                     for cat in categories[:]:  # Show first 5
                         print(
                             f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
