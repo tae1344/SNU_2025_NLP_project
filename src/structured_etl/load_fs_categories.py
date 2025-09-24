@@ -12,7 +12,12 @@ from typing import Any, Dict, List, Set, Tuple
 
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id, build_category_id
-from .etl_config import ETLConfig, extract_company_info_from_data
+from .etl_config import (
+    ETLConfig,
+    read_fs_tables_cache,
+    build_cached_indices_map,
+    DEFAULT_CONFIG,
+)
 from .note_utils import normalize_note_cell
 from .taxonomy_config import BS_TOP_LEVEL_PATTERNS
 
@@ -24,7 +29,6 @@ from .taxonomy_config import BS_TOP_LEVEL_PATTERNS
 # "재무활동",
 # "포괄손익",
 # "총포괄손익",
-
 
 
 ROMAN_NUMERALS = ["Ⅰ.", "Ⅱ.", "Ⅲ.", "Ⅳ.", "Ⅴ.", "Ⅵ.", "Ⅶ.", "Ⅷ.", "Ⅸ.", "Ⅹ."]
@@ -45,6 +49,7 @@ KOREAN_ALPHAS = [
     "파.",
     "하.",
 ]
+
 
 def extract_category_hierarchy(
     table_data: List[Dict[str, Any]], section_code: str
@@ -178,6 +183,9 @@ def load_fs_category_nodes(
         {}
     )  # (section_code, name) -> category_info
 
+    # Load FS tables cache once
+    fs_tables_cache = read_fs_tables_cache()
+
     # Process all files to collect categories
     for file_path in processed_files:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -185,10 +193,24 @@ def load_fs_category_nodes(
 
         # Extract categories from each section
         sections = data.get("sections", [])
+        # Per-file cache entry
+        cache_entry = fs_tables_cache.get("files", {}).get(file_path.name, {})
+        cached_fs_sections = cache_entry.get("fs_sections", {})
+
         for section in sections:
             tables = section.get("tables", [])
+            section_title = section.get("title", "")
 
-            for table in tables:
+            # Only process Financial Statements section using cached indices
+            if "재 무 제 표" not in section_title or not cached_fs_sections:
+                continue
+
+            # Build allowed indices and reverse mapping index -> FS code
+            allowed_indices, index_to_code = build_cached_indices_map(cache_entry)
+
+            for table_idx, table in enumerate(tables):
+                if table_idx not in allowed_indices:
+                    continue
                 if not table.get("metadata", {}).get("is_financial_table", False):
                     continue
 
@@ -196,8 +218,8 @@ def load_fs_category_nodes(
                 if not table_data or "과 목" not in table_data[0]:
                     continue
 
-                # Determine section type from table structure
-                section_code = determine_section_from_table(table_data)
+                # Use section code from cache mapping
+                section_code = index_to_code.get(table_idx, "")
                 if not section_code:
                     continue
 
@@ -351,7 +373,16 @@ def determine_section_from_table(table_data: List[Dict[str, Any]]) -> str:
         return "CI"  # CI mentioned without BS context
 
     # 5. Profit & Loss - general income statement (fallback for income-related)
-    pl_indicators = ["매 출 액", "영업이익", "매출액", "매출원가", "매 출 원 가", "영 업 이 익", "당기순이익", "주당이익"]
+    pl_indicators = [
+        "매 출 액",
+        "영업이익",
+        "매출액",
+        "매출원가",
+        "매 출 원 가",
+        "영 업 이 익",
+        "당기순이익",
+        "주당이익",
+    ]
     if any(indicator in all_text for indicator in pl_indicators):
         # Only classify as PL if not clearly another type
         if not any(
@@ -364,8 +395,6 @@ def determine_section_from_table(table_data: List[Dict[str, Any]]) -> str:
 
 if __name__ == "__main__":
     # Test extraction with available files
-    from .etl_config import DEFAULT_CONFIG
-
     config = DEFAULT_CONFIG
     # Use only recent files for testing
     recent_years = [2024]
@@ -379,32 +408,48 @@ if __name__ == "__main__":
         with open(test_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Find financial tables
+        # Find financial tables using cached indices
         sections = data.get("sections", [])
         categories_found = 0
 
-        for section in sections:
-            tables = section.get("tables", [])
+        cache = read_fs_tables_cache()
+        cache_entry = cache.get("files", {}).get(test_file.name, {})
+        cached_fs_sections = cache_entry.get("fs_sections", {})
 
-            for table in tables:
-                if table.get("metadata", {}).get("is_financial_table", False):
+        if not cached_fs_sections:
+            print("No cache found for this file; skipping cache-based test.")
+        else:
+            # Build index->section_code mapping
+            _, index_to_code = build_cached_indices_map(cache_entry)
+
+            for section in sections:
+                tables = section.get("tables", [])
+                section_title = section.get("title", "")
+                if "재 무 제 표" not in section_title:
+                    continue
+
+                for table_idx, table in enumerate(tables):
+                    if table_idx not in index_to_code:
+                        continue
+                    if not table.get("metadata", {}).get("is_financial_table", False):
+                        continue
+
                     table_data = table.get("data", [])
-                    section_code = determine_section_from_table(table_data)
+                    if not table_data or "과 목" not in table_data[0]:
+                        continue
 
-                    if section_code:
-                        categories = extract_category_hierarchy(
-                            table_data, section_code
-                        )
-                        categories_found += len(categories)
+                    section_code = index_to_code[table_idx]
+                    categories = extract_category_hierarchy(table_data, section_code)
+                    categories_found += len(categories)
+                    print(
+                        f"\n=== {section_code} Categories ({len(categories)} found) ==="
+                    )
+                    for cat in categories[:]:  # Show first 5
                         print(
-                            f"\n=== {section_code} Categories ({len(categories)} found) ==="
+                            f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
                         )
-                        for cat in categories[:]:  # Show first 5
-                            print(
-                                f"  Level {cat['level']}: {cat['name']} (Path: {cat['path']})"
-                            )
-                        if len(categories) > 5:
-                            print(f"  ... and {len(categories) - 5} more")
+                    if len(categories) > 5:
+                        print(f"  ... and {len(categories) - 5} more")
 
         print(f"\nTotal categories found: {categories_found}")
     else:

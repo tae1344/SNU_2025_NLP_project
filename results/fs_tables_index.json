@@ -1,0 +1,404 @@
+{
+  "metadata": {
+    "version": 1,
+    "generated_at": "2025-09-24T19:41:29.924156"
+  },
+  "files": {
+    "감사보고서_2014_parser_v3.json": {
+      "year": 2014,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2015_parser_v3.json": {
+      "year": 2015,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2016_parser_v3.json": {
+      "year": 2016,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2017_parser_v3.json": {
+      "year": 2017,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2018_parser_v3.json": {
+      "year": 2018,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2019_parser_v3.json": {
+      "year": 2019,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2020_parser_v3.json": {
+      "year": 2020,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2021_parser_v3.json": {
+      "year": 2021,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2022_parser_v3.json": {
+      "year": 2022,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2023_parser_v3.json": {
+      "year": 2023,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    },
+    "감사보고서_2024_parser_v3.json": {
+      "year": 2024,
+      "company": "삼성전자",
+      "fs_sections": {
+        "BS": {
+          "title": "재무상태표",
+          "table_indices": [
+            6
+          ]
+        },
+        "PL": {
+          "title": "손익계산서",
+          "table_indices": [
+            9
+          ]
+        },
+        "CI": {
+          "title": "포괄손익계산서",
+          "table_indices": [
+            12
+          ]
+        },
+        "EQ": {
+          "title": "자본변동표",
+          "table_indices": [
+            15
+          ]
+        },
+        "CF": {
+          "title": "현금흐름표",
+          "table_indices": [
+            18
+          ]
+        }
+      }
+    }
+  }
+}

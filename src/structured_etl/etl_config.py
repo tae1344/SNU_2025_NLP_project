@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 import json
 
+# Cache file path for FS table indices
+FS_TABLES_CACHE_PATH = Path("results") / "fs_tables_index.json"
+
 
 @dataclass(frozen=True)
 class ETLConfig:
@@ -115,33 +118,47 @@ def extract_company_info_from_data(processed_data: Dict[str, Any]) -> Dict[str, 
     }
 
 
-def load_etl_config(config_path: Optional[Path] = None) -> ETLConfig:
-    """Load ETL configuration from file or use defaults.
-
-    Args:
-        config_path: Path to configuration file. If None, uses defaults.
-
-    Returns:
-        ETLConfig instance
-    """
-    if config_path and config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            config_data = json.load(f)
-
-        return ETLConfig(
-            company_name=config_data.get("company_name", "삼성전자"),
-            processed_data_dir=Path(
-                config_data.get("processed_data_dir", "data/processed")
-            ),
-            processed_file_pattern=config_data.get(
-                "processed_file_pattern", "감사보고서_{year}_parser_v3.json"
-            ),
-            start_year=config_data.get("start_year", 2014),
-            end_year=config_data.get("end_year", 2024),
-            fs_sections=config_data.get("fs_sections", ["BS", "PL", "CF", "EQ"]),
+# Helper: save cache payload to disk
+def save_fs_tables_cache(cache_payload: Dict[str, Any]) -> None:
+    try:
+        FS_TABLES_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cache_payload.setdefault("metadata", {})["generated_at"] = (
+            __import__("datetime").datetime.now().isoformat()
         )
+        with open(FS_TABLES_CACHE_PATH, "w", encoding="utf-8") as cf:
+            json.dump(cache_payload, cf, ensure_ascii=False, indent=2)
+        print(f"Saved FS table index cache: {FS_TABLES_CACHE_PATH}")
+    except Exception as e:
+        print(f"Failed to write FS table index cache: {e}")
 
-    return ETLConfig()
+
+# Helper: read cache payload from disk (for other ETL steps)
+def read_fs_tables_cache() -> Dict[str, Any]:
+    try:
+        if FS_TABLES_CACHE_PATH.exists():
+            with open(FS_TABLES_CACHE_PATH, "r", encoding="utf-8") as cf:
+                return json.load(cf)
+    except Exception as e:
+        print(f"Failed to read FS table index cache: {e}")
+    return {"metadata": {"version": 1}, "files": {}}
+
+
+# Helper: from a per-file cache entry, build allowed indices set and index->code map
+def build_cached_indices_map(
+    cache_entry: Dict[str, Any],
+) -> tuple[set[int], Dict[int, str]]:
+    allowed_indices: set[int] = set()
+    index_to_code: Dict[int, str] = {}
+    cached_fs_sections = (cache_entry or {}).get("fs_sections", {})
+    for code, info in cached_fs_sections.items():
+        for idx in info.get("table_indices", []):
+            try:
+                idx_int = int(idx)
+                allowed_indices.add(idx_int)
+                index_to_code[idx_int] = code
+            except Exception:
+                continue
+    return allowed_indices, index_to_code
 
 
 # Default configuration instance

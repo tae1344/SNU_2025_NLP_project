@@ -17,7 +17,12 @@ from typing import Any, Dict, List, Final, Set
 
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id
-from .etl_config import ETLConfig, extract_company_info_from_data
+from .etl_config import (
+    ETLConfig,
+    extract_company_info_from_data,
+    save_fs_tables_cache,
+    DEFAULT_CONFIG,
+)
 from .taxonomy_config import FS_KEYWORDS
 
 
@@ -155,7 +160,9 @@ def _identify_fs_types_from_tables(
                         }
 
                     found_types[fs_type]["count"] += 1
-                    found_types[fs_type]["indices"].append(i)
+                    found_types[fs_type]["indices"].append(
+                        i + 1
+                    )  # 실제 재무제표의 데이터 table은 타이틀 정보가 있는 그 다음 table에 있음!
             # Special handling for CI (포괄손익계산서) - distinguish from PL
             if fs_type == "CI" and any(
                 keyword in all_text for keyword in fs_keywords["CI"]
@@ -216,6 +223,7 @@ def load_fs_section_nodes(
     all_fs_sections = []
 
     # Collect all FS sections from all files
+    cache_payload: Dict[str, Any] = {"metadata": {"version": 1}, "files": {}}
     for file_path in processed_files:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -223,9 +231,31 @@ def load_fs_section_nodes(
         fs_sections = extract_fs_sections(data, config)
         all_fs_sections.extend(fs_sections)
 
+        # Build per-file cache entry (best-effort)
+        try:
+            company_info = extract_company_info_from_data(data)
+            file_key = file_path.name
+            fs_map: Dict[str, Any] = {}
+            for s in fs_sections:
+                if s.get("has_data"):
+                    fs_map[s["code"]] = {
+                        "title": s.get("title", ""),
+                        "table_indices": s.get("table_indices", []),
+                    }
+            cache_payload["files"][file_key] = {
+                "year": company_info.get("year"),
+                "company": company_info.get("name"),
+                "fs_sections": fs_map,
+            }
+        except Exception:
+            pass
+
     print(
         f"Extracted {len(all_fs_sections)} FS sections from {len(processed_files)} files"
     )
+
+    # Persist cache to disk
+    save_fs_tables_cache(cache_payload)
 
     # Deduplicate by section code (same FS type should have one node)
     unique_sections = {}
@@ -308,8 +338,6 @@ def load_fs_section_nodes(
 
 if __name__ == "__main__":
     # Test extraction with available files
-    from .etl_config import DEFAULT_CONFIG
-
     config = DEFAULT_CONFIG
     # Use only recent files for testing
     recent_years = [2022, 2023, 2024]

@@ -19,7 +19,13 @@ from .id_utils import (
     build_category_id,
     build_company_id,
 )
-from .etl_config import ETLConfig, extract_company_info_from_data
+from .etl_config import (
+    ETLConfig,
+    DEFAULT_CONFIG,
+    extract_company_info_from_data,
+    read_fs_tables_cache,
+    build_cached_indices_map,
+)
 from .executor import (
     ETLExecutor,
     BatchConfig,
@@ -48,6 +54,9 @@ def extract_financial_data_optimized(
 
     print(f"🔍 Extracting financial data from {len(processed_files)} files...")
 
+    # Load FS tables cache once to avoid repeated reads
+    fs_tables_cache = read_fs_tables_cache()
+
     for file_path in processed_files:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -58,8 +67,12 @@ def extract_financial_data_optimized(
         print(f"  Processing {file_path.name} (year: {year})...")
 
         sections = data.get("sections", [])
+
+        # Per-file cache entry (best-effort)
+        cache_entry = fs_tables_cache.get("files", {}).get(file_path.name, {})
+
         file_nodes, file_relationships = _extract_from_sections(
-            sections, year, company_name
+            sections, year, company_name, cache_entry
         )
 
         all_nodes.extend(file_nodes)
@@ -76,7 +89,10 @@ def extract_financial_data_optimized(
 
 
 def _extract_from_sections(
-    sections: List[Dict[str, Any]], year: int, company_name: str
+    sections: List[Dict[str, Any]],
+    year: int,
+    company_name: str,
+    cache_entry: Dict[str, Any] | None = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Extract financial data from sections recursively."""
     nodes = []
@@ -84,7 +100,7 @@ def _extract_from_sections(
 
     for section in sections:
         section_nodes, section_rels = _process_section_tables(
-            section, year, company_name
+            section, year, company_name, cache_entry
         )
         nodes.extend(section_nodes)
         relationships.extend(section_rels)
@@ -101,7 +117,10 @@ def _extract_from_sections(
 
 
 def _process_section_tables(
-    section: Dict[str, Any], year: int, company_name: str
+    section: Dict[str, Any],
+    year: int,
+    company_name: str,
+    cache_entry: Dict[str, Any] | None = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Process tables within a section to extract financial data."""
     nodes = []
@@ -110,15 +129,24 @@ def _process_section_tables(
     section_title = section.get("title", "")
     tables = section.get("tables", [])
 
+    # Assume cache exists: Only process Financial Statements section using cached indices
+    cached_fs_sections = (cache_entry or {}).get("fs_sections", {})
+    if "재 무 제 표" not in section_title or not cached_fs_sections:
+        return nodes, relationships
+
+    allowed_indices, index_to_code = build_cached_indices_map(cache_entry)
+
     for table_idx, table in enumerate(tables):
+        if table_idx not in allowed_indices:
+            continue
         table_data = table.get("data", [])
         columns = table.get("columns", [])
 
         if len(table_data) < 2 or len(columns) < 2:
             continue
 
-        # Determine section code from table content
-        section_code = _determine_section_code_from_table(table_data, section_title)
+        # Section code from cache mapping
+        section_code = index_to_code.get(table_idx)
         if not section_code:
             continue
 
@@ -149,80 +177,6 @@ def _get_section_code(section_title: str) -> Optional[str]:
         return "CF"
     elif "자본변동표" in section_title or "자본변동" in section_title:
         return "EQ"
-
-    return None
-
-
-def _determine_section_code_from_table(
-    table_data: List[Dict[str, Any]], section_title: str
-) -> Optional[str]:
-    """Determine section code from table content using improved logic."""
-    # First try section title
-    section_code = _get_section_code(section_title)
-    if section_code:
-        return section_code
-
-    # Collect all category names for comprehensive analysis
-    all_categories = []
-    for row in table_data[:15]:  # Check more rows for better accuracy
-        # Check "과 목" column first (most reliable)
-        category = row.get("과 목", "")
-        if category:
-            all_categories.append(str(category).strip().lower())
-
-        # Also check first column as backup
-        first_col = row.get("0", "")
-        if first_col:
-            all_categories.append(str(first_col).strip().lower())
-
-    all_text = " ".join(all_categories)
-
-    # Use hierarchical classification with exclusion rules (same as load_fs_categories)
-
-    # 1. Balance Sheet - very distinctive asset/liability structure
-    bs_indicators = ["자 산", "부 채"]
-    bs_structure = ["유동자산", "비유동자산", "유동부채", "비유동부채"]
-
-    if any(indicator in all_text for indicator in bs_indicators):
-        # Strong BS indicators present
-        if any(struct in all_text for struct in bs_structure):
-            return "BS"
-        elif all_text.count("자 산") > 1 or all_text.count("부 채") > 1:
-            return "BS"
-
-    # 2. Cash Flow - highly distinctive activity-based structure
-    cf_activities = ["영업활동", "투자활동", "재무활동"]
-    if sum(1 for activity in cf_activities if activity in all_text) >= 2:
-        return "CF"
-    elif "현금흐름" in all_text:
-        return "CF"
-
-    # 3. Equity - specific equity terms
-    eq_core = ["자본금", "이익잉여금"]
-    eq_indicators = ["자본에 직접 인식", "주주와의 거래", "자본변동"]
-
-    if any(core in all_text for core in eq_core):
-        return "EQ"
-    elif any(indicator in all_text for indicator in eq_indicators):
-        return "EQ"
-
-    # 4. Comprehensive Income - specific comprehensive income terms
-    ci_core = ["포괄손익", "기타포괄손익", "총포괄손익"]
-    ci_count = sum(1 for term in ci_core if term in all_text)
-
-    if ci_count >= 2:  # Multiple CI terms
-        return "CI"
-    elif "포괄손익" in all_text and "자 산" not in all_text and "부 채" not in all_text:
-        return "CI"
-
-    # 5. Profit & Loss - general income statement (fallback for income-related)
-    pl_indicators = ["매 출", "영업이익", "매출액", "매출원가"]
-    if any(indicator in all_text for indicator in pl_indicators):
-        # Only classify as PL if not clearly another type
-        if not any(
-            term in all_text for term in ["자 산", "부 채", "영업활동", "자본금"]
-        ):
-            return "PL"
 
     return None
 
@@ -612,9 +566,6 @@ def load_financial_data_nodes_optimized(
 
 if __name__ == "__main__":
     # Test optimized financial data loading
-    from .etl_config import DEFAULT_CONFIG
-    from .neo4j_client import load_config, create_driver, neo4j_session
-
     config = DEFAULT_CONFIG
     recent_years = [2024]
     available_files = config.get_processed_files(recent_years)
