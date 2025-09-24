@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Final, Set
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
 from .id_utils import build_company_id, build_fs_section_id
 from .etl_config import ETLConfig, extract_company_info_from_data
+from .taxonomy_config import FS_KEYWORDS
 
 
 # Default financial statement section mappings
@@ -83,7 +84,7 @@ def extract_fs_sections(
                 "has_data": True,
                 "table_count": type_info["count"],
                 "table_indices": type_info["indices"],
-                "sample_title": type_info["sample_title"],
+                "title": type_info["title"],
             }
         )
 
@@ -118,13 +119,7 @@ def _identify_fs_types_from_tables(
         Dict mapping FS type codes to type info
     """
     # Keywords for each financial statement type (with variations)
-    fs_keywords = {
-        "BS": ["재무상태표", "재 무 상 태 표", "재무 상태표"],
-        "PL": ["손익계산서", "손 익 계 산 서", "손익 계산서"],
-        "CI": ["포괄손익계산서", "포 괄 손 익 계 산 서", "포괄 손익 계산서"],
-        "CF": ["현금흐름표", "현 금 흐 름 표", "현금 흐름표"],
-        "EQ": ["자본변동표", "자 본 변 동 표", "자본 변동표"],
-    }
+    fs_keywords = FS_KEYWORDS
 
     found_types = {}
 
@@ -156,20 +151,11 @@ def _identify_fs_types_from_tables(
                         found_types[fs_type] = {
                             "count": 0,
                             "indices": [],
-                            "sample_title": "",
+                            "title": re.sub(r"\s+", "", keyword).strip(),
                         }
 
                     found_types[fs_type]["count"] += 1
                     found_types[fs_type]["indices"].append(i)
-
-                    # Extract sample title from first row
-                    if not found_types[fs_type]["sample_title"] and table_data:
-                        first_row = table_data[0]
-                        title_text = " ".join([str(v) for v in first_row.values() if v])
-                        found_types[fs_type]["sample_title"] = title_text[:100]
-
-                    break  # Found match, no need to check other keywords for this type
-
             # Special handling for CI (포괄손익계산서) - distinguish from PL
             if fs_type == "CI" and any(
                 keyword in all_text for keyword in fs_keywords["CI"]
@@ -182,6 +168,23 @@ def _identify_fs_types_from_tables(
                         found_types["PL"]["count"] -= 1
                         if found_types["PL"]["count"] == 0:
                             del found_types["PL"]
+
+    # Post-processing: deduplicate indices and normalize counts
+    for fs_type, info in list(found_types.items()):
+        unique_indices = sorted(set(info.get("indices", [])))
+        info["indices"] = unique_indices
+        info["count"] = len(unique_indices)
+
+    # Ensure PL excludes any indices that are classified as CI
+    if "PL" in found_types and "CI" in found_types:
+        ci_set = set(found_types["CI"].get("indices", []))
+        pl_indices = [
+            idx for idx in found_types["PL"].get("indices", []) if idx not in ci_set
+        ]
+        found_types["PL"]["indices"] = pl_indices
+        found_types["PL"]["count"] = len(pl_indices)
+        if found_types["PL"]["count"] == 0:
+            del found_types["PL"]
 
     return found_types
 
@@ -197,7 +200,7 @@ def load_fs_section_nodes(
         config: ETL configuration
     """
     company_name = config.company_name
-    company_id = build_company_id(company_name)
+    company_id = build_company_id(company_name)  # TODO : 회사 id가 중복 생성되는지 체크
 
     # Ensure COMPANY node exists
     session.run(
@@ -262,14 +265,14 @@ def load_fs_section_nodes(
                 s.{PROPS['company']} = $company_name,
                 s.has_data = $has_data,
                 s.table_count = $table_count,
-                s.sample_title = $sample_title
+                s.title = $title
             ON MATCH SET
                 s.{PROPS['section_code']} = coalesce(s.{PROPS['section_code']}, $code),
                 s.{PROPS['name']} = coalesce(s.{PROPS['name']}, $name),
                 s.{PROPS['company']} = coalesce(s.{PROPS['company']}, $company_name),
                 s.has_data = coalesce(s.has_data, $has_data),
                 s.table_count = coalesce(s.table_count, $table_count),
-                s.sample_title = coalesce(s.sample_title, $sample_title)
+                s.title = coalesce(s.title, $title)
             """,
             {
                 "section_id": section_id,
@@ -278,7 +281,7 @@ def load_fs_section_nodes(
                 "company_name": company_name,
                 "has_data": fs_section.get("has_data", False),
                 "table_count": fs_section.get("table_count", 0),
-                "sample_title": fs_section.get("sample_title", ""),
+                "title": fs_section.get("title", ""),
             },
         )
 
