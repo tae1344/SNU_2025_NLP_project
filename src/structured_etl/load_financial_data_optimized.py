@@ -18,6 +18,7 @@ from .id_utils import (
     build_year_node_id,
     build_category_id,
     build_company_id,
+    build_note_id,
 )
 from .etl_config import (
     ETLConfig,
@@ -385,6 +386,22 @@ def _extract_table_data(
                 }
             )
 
+        # Link notes: financial_data -> note
+        if notes_array:
+            note_nums: set[str] = set()
+            for entry in notes_array:
+                for n in extract_note_numbers(entry):
+                    note_nums.add(str(n))
+            for n in sorted(note_nums):
+                note_id = build_note_id(company_name, year, n)
+                relationships.append(
+                    {
+                        "from_id": node_id,
+                        "to_id": note_id,
+                        "relationship_type": RELATIONSHIP_TYPES["LINKS_TO_NOTE"],
+                    }
+                )
+
     # for node in nodes:
     return nodes, relationships
 
@@ -554,6 +571,19 @@ def batch_process_category_relationships(session, batch: List[Dict[str, Any]]) -
     )
 
 
+def batch_process_note_relationships(session, batch: List[Dict[str, Any]]) -> int:
+    """Batch processor for FINANCIAL_DATA -> NOTE LINKS_TO_NOTE relationships."""
+    return batch_create_relationships(
+        session=session,
+        batch=batch,
+        from_label=NODE_TYPES["FINANCIAL_DATA"],
+        to_label=NODE_TYPES["NOTE"],
+        relationship_type=RELATIONSHIP_TYPES["LINKS_TO_NOTE"],
+        from_id_property="from_id",
+        to_id_property="to_id",
+    )
+
+
 def load_financial_data_nodes_optimized(
     session, processed_files: List[Path], config: ETLConfig
 ) -> None:
@@ -597,6 +627,11 @@ def load_financial_data_nodes_optimized(
         for r in relationship_data
         if r.get("relationship_type") == RELATIONSHIP_TYPES["RELATED_TO"]
     ]
+    note_rels = [
+        r
+        for r in relationship_data
+        if r.get("relationship_type") == RELATIONSHIP_TYPES["LINKS_TO_NOTE"]
+    ]
 
     rel_metrics = executor.execute_batch_operation(
         session=session,
@@ -612,6 +647,13 @@ def load_financial_data_nodes_optimized(
         batch_processor=batch_process_category_relationships,
     )
 
+    note_rel_metrics = executor.execute_batch_operation(
+        session=session,
+        operation_name="LINKS_TO_NOTE Relationships",
+        data_items=note_rels,
+        batch_processor=batch_process_note_relationships,
+    )
+
     # Summary
     print(f"\n✅ Optimized FINANCIAL_DATA loading completed!")
     print(
@@ -619,9 +661,9 @@ def load_financial_data_nodes_optimized(
         f"({node_metrics.success_rate:.1f}% success)"
     )
     print(
-        f"   Relationships: {rel_metrics.processed_items + cat_rel_metrics.processed_items}/"
-        f"{rel_metrics.total_items + cat_rel_metrics.total_items} "
-        f"(contains: {rel_metrics.processed_items}, related_to: {cat_rel_metrics.processed_items})"
+        f"   Relationships: {rel_metrics.processed_items + cat_rel_metrics.processed_items + note_rel_metrics.processed_items}/"
+        f"{rel_metrics.total_items + cat_rel_metrics.total_items + note_rel_metrics.total_items} "
+        f"(contains: {rel_metrics.processed_items}, related_to: {cat_rel_metrics.processed_items}, notes: {note_rel_metrics.processed_items})"
     )
     print(
         f"   Total time: {node_metrics.duration_seconds + rel_metrics.duration_seconds:.2f}s"
