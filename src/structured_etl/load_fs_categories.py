@@ -419,7 +419,13 @@ def load_fs_category_nodes(
                 cat.{PROPS['company']} = $company_name,
                 cat.hierarchy_level = $level,
                 cat.has_notes = $has_notes,
-                cat.original_name = $original_name
+                cat.original_name = $original_name,
+                cat.parent_path = $parent_path,
+                cat.path_normalized = $path_normalized,
+                cat.path_tokens = $path_tokens,
+                cat.path_key = $path_key,
+                cat.parent_path_normalized = $parent_path_normalized,
+                cat.note_references = $note_references
             ON MATCH SET
                 cat.{PROPS['name']} = coalesce(cat.{PROPS['name']}, $name),
                 cat.{PROPS['category_path']} = coalesce(cat.{PROPS['category_path']}, $path),
@@ -427,7 +433,13 @@ def load_fs_category_nodes(
                 cat.{PROPS['company']} = coalesce(cat.{PROPS['company']}, $company_name),
                 cat.hierarchy_level = coalesce(cat.hierarchy_level, $level),
                 cat.has_notes = coalesce(cat.has_notes, $has_notes),
-                cat.original_name = coalesce(cat.original_name, $original_name)
+                cat.original_name = coalesce(cat.original_name, $original_name),
+                cat.parent_path = coalesce(cat.parent_path, $parent_path),
+                cat.path_normalized = coalesce(cat.path_normalized, $path_normalized),
+                cat.path_tokens = coalesce(cat.path_tokens, $path_tokens),
+                cat.path_key = coalesce(cat.path_key, $path_key),
+                cat.parent_path_normalized = coalesce(cat.parent_path_normalized, $parent_path_normalized),
+                cat.note_references = coalesce(cat.note_references, $note_references)
             """,
             {
                 "category_id": category_id,
@@ -438,6 +450,12 @@ def load_fs_category_nodes(
                 "level": category.get("level", 3),
                 "has_notes": category.get("has_notes", False),
                 "original_name": category.get("original_name", category_name),
+                "parent_path": category.get("parent_path", ""),
+                "path_normalized": category.get("path_normalized", ""),
+                "path_tokens": category.get("path_tokens", ""),
+                "path_key": category.get("path_key", ""),
+                "parent_path_normalized": category.get("parent_path_normalized", ""),
+                "note_references": category.get("note_references", []),
             },
         )
 
