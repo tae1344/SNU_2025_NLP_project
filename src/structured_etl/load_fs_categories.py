@@ -155,8 +155,8 @@ def determine_hierarchy_level(category_name: str, section_code: str) -> int:
     if any(roman in name for roman in ROMAN_NUMERALS):
         return 2
 
-    # Level 3: Numbers indicate subsections
-    if any(name.startswith(i) for i in NUMBERS):  # Extended range for more items
+    # Level 3: Numbers indicate subsections (support multi-digit like 11., 12.)
+    if re.match(r"^\d+\.\s*", name):
         return 3
 
     # Level 4: Korean letters indicate sub-subsections
@@ -178,9 +178,7 @@ def clean_category_name(name: str) -> str:
     for roman in ROMAN_NUMERALS:
         cleaned = cleaned.replace(roman, "").strip()
 
-    # Remove number prefixes
-    for i in NUMBERS:
-        cleaned = cleaned.replace(f"{i} ", "").strip()
+    # Note: do not use NUMBERS list for removal to avoid partial deletions (e.g., '11.' -> '1')
 
     # Remove letter prefixes
     for letter in KOREAN_ALPHAS:
@@ -189,20 +187,66 @@ def clean_category_name(name: str) -> str:
     # Clean up spacing
     cleaned = " ".join(cleaned.split())
 
-    # If text is spaced one-character tokens (e.g., "자 산" -> ["자","산"]) join without spaces
-    tokens = cleaned.split(" ") if cleaned else []
-    if tokens and all(len(t) == 1 for t in tokens):
-        cleaned = "".join(tokens)
+    # Detect date-like prefix (e.g., 2024.12.31(당기말)) to avoid stripping the year
+    is_date_prefix = bool(re.match(r"^\d{4}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}", cleaned))
 
-    # Join spaced Hangul sequences anywhere in the string, including inside parentheses
-    # Examples:
-    #  - "영 업 이 익 (손 실)" -> "영업이익(손실)"
-    #  - "법 인 세 비 용(수 익)" -> "법인세비용(수익)"
+    # Remove numeric/bullet prefixes (only when followed by space to avoid dates)
+    # Examples: "11. 제목", "(11) 제목", "11) 제목"
+    if not is_date_prefix:
+        cleaned = re.sub(r"^\d+\.\s+", "", cleaned)
+        cleaned = re.sub(r"^\(\d+\)\s*", "", cleaned)
+        cleaned = re.sub(r"^\d+\)\s*", "", cleaned)
+
+    # Normalize spaces around and inside parentheses
     cleaned = re.sub(r"\(\s+", "(", cleaned)
     cleaned = re.sub(r"\s+\)", ")", cleaned)
-    cleaned = re.sub(r"(?<=\b)([가-힣])\s+(?=[가-힣])", "", cleaned)
-    # Repeat join to catch longer chains of spaced Hangul
-    cleaned = re.sub(r"(?<=\b)([가-힣])\s+(?=[가-힣])", "", cleaned)
+    cleaned = re.sub(r"\s+\(", "(", cleaned)  # remove space before '('
+
+    # Join spaced Hangul inside parentheses as well
+    def _join_hangul_in_parens(m):
+        inner = m.group(1)
+        # collapse spaces between Hangul letters
+        inner = re.sub(r"([가-힣])\s+([가-힣])", r"\1\2", inner)
+        return f"({inner})"
+
+    cleaned = re.sub(r"\(([^)]*)\)", _join_hangul_in_parens, cleaned)
+
+    # Join runs of single-character Hangul tokens only (preserve normal word spaces)
+    # e.g., ["영","업","이","익"] -> "영업이익" but keep "기타 투자활동" as-is
+    token_list = cleaned.split(" ") if cleaned else []
+    segments: List[str] = []
+    i = 0
+    while i < len(token_list):
+        if not token_list[i]:
+            i += 1
+            continue
+        if len(token_list[i]) == 1 and re.match(r"^[가-힣]$", token_list[i]):
+            j = i
+            while (
+                j < len(token_list)
+                and len(token_list[j]) == 1
+                and re.match(r"^[가-힣]$", token_list[j])
+            ):
+                j += 1
+            segments.append("".join(token_list[i:j]))
+            i = j
+        else:
+            # Join single Hangul followed by token starting with Hangul or '(' (e.g., '비' + '용(수익)')
+            if (
+                len(token_list[i]) == 1
+                and re.match(r"^[가-힣]$", token_list[i])
+                and i + 1 < len(token_list)
+                and re.match(r"^[가-힣(]", token_list[i + 1])
+            ):
+                segments.append(token_list[i] + token_list[i + 1])
+                i += 2
+                continue
+            segments.append(token_list[i])
+            i += 1
+    cleaned = " ".join([s for s in segments if s])
+    # Final fix: remove space when Hangul is followed by Hangul immediately before '('
+    # e.g., "법인세비 용(수익)" -> "법인세비용(수익)", "영업이 익(손실)" -> "영업이익(손실)"
+    cleaned = re.sub(r"([가-힣])\s+(?=[가-힣]\()", r"\1", cleaned)
     return cleaned
 
 
