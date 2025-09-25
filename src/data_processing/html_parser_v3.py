@@ -84,7 +84,7 @@ class HTMLParserV3:
         self._remove_empty_layout_tags(soup)
 
         # 불필요한 텍스트 패턴 제거
-        self._remove_unnecessary_texts(soup)
+        # self._remove_unnecessary_texts(soup)
 
         self.logger.info(f"HTML 파일 로딩 및 정리 완료: {file_path.name}")
         return soup

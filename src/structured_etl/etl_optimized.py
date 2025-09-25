@@ -20,10 +20,6 @@ from .executor import ETLExecutor, BatchConfig
 
 # Import optimized loaders
 from .load_financial_data_optimized import load_financial_data_nodes_optimized
-from .load_financial_trends import load_financial_trends
-from .period_column_detector import process_period_columns_for_timeseries
-from .fs_type_preprocessor import process_fs_by_type
-
 
 # Import regular loaders (to be optimized in future)
 from .load_company_enhanced import load_enhanced_company_nodes
@@ -35,7 +31,6 @@ from .load_notes import load_note_nodes
 from .link_notes import load_fs_note_links, create_financial_data_note_links
 from .load_search_docs import load_search_doc_nodes
 from .link_trends import load_trend_relationships
-from .load_financial_relationships import load_financial_relationship_edges
 from .track_relationship_changes import load_relationship_changes
 
 
@@ -104,17 +99,6 @@ def run_optimized_etl(
             apply_schema(session)
             print("✅ Schema applied")
 
-            # 1.5) Process period columns for time series consistency
-            # print(
-            #     "\n📅 Step 1.5: Processing period columns for time series consistency..."
-            # )
-            # period_results = process_period_columns_for_timeseries(
-            #     files_to_process, etl_config
-            # )
-            # print(
-            #     f"✅ Period columns processed: {period_results['tables_processed']} tables"
-            # )
-
             # 2) Load enhanced COMPANY and company relationship nodes
             print(
                 "\n🏢 Step 2: Loading enhanced COMPANY and company relationship nodes..."
@@ -182,12 +166,7 @@ def run_optimized_etl(
             load_trend_relationships(session, files_to_process, etl_config)
             print("✅ Trend relationships created")
 
-            # 12) Create financial relationship edges
-            print("\n💰 Step 12: Creating financial relationship edges...")
-            load_financial_relationship_edges(session, files_to_process, etl_config)
-            print("✅ Financial relationship edges created")
-
-            # 12.5) Track relationship changes (NEW)
+            # 12) Track relationship changes (NEW)
             print("\n🔄 Step 12.5: Tracking relationship changes...")
             load_relationship_changes(session, files_to_process, etl_config)
             print("✅ Relationship changes tracked")
