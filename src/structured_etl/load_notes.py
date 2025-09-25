@@ -16,55 +16,55 @@ from .etl_config import ETLConfig, extract_company_info_from_data
 import re
 
 
-def _has_better_structure(content1: str, content2: str) -> bool:
-    """Check if content1 has better structure than content2 for note merging.
+# def _has_better_structure(content1: str, content2: str) -> bool:
+#     """Check if content1 has better structure than content2 for note merging.
 
-    Args:
-        content1: First content to compare
-        content2: Second content to compare
+#     Args:
+#         content1: First content to compare
+#         content2: Second content to compare
 
-    Returns:
-        True if content1 has better structure
-    """
+#     Returns:
+#         True if content1 has better structure
+#     """
 
-    def _calculate_structure_score(content: str) -> float:
-        """Calculate structure quality score for content."""
-        if not content or len(content.strip()) < 10:
-            return 0.0
+#     def _calculate_structure_score(content: str) -> float:
+#         """Calculate structure quality score for content."""
+#         if not content or len(content.strip()) < 10:
+#             return 0.0
 
-        score = 0.0
+#         score = 0.0
 
-        # Check for structured patterns (higher score for better structure)
-        structured_patterns = [
-            r"\d+\.\s+[^\\n]+",  # Numbered lists: 1. item
-            r"[가-힣]\.\s+[^\\n]+",  # Korean letter lists: 가. item
-            r"\([0-9가-힣]+\)\s+[^\\n]+",  # Parenthesized items: (1) item
-            r"-\s+[^\\n]+",  # Dash lists: - item
-        ]
+#         # Check for structured patterns (higher score for better structure)
+#         structured_patterns = [
+#             r"\d+\.\s+[^\\n]+",  # Numbered lists: 1. item
+#             r"[가-힣]\.\s+[^\\n]+",  # Korean letter lists: 가. item
+#             r"\([0-9가-힣]+\)\s+[^\\n]+",  # Parenthesized items: (1) item
+#             r"-\s+[^\\n]+",  # Dash lists: - item
+#         ]
 
-        for pattern in structured_patterns:
-            matches = re.findall(pattern, content)
-            score += len(matches) * 0.1
+#         for pattern in structured_patterns:
+#             matches = re.findall(pattern, content)
+#             score += len(matches) * 0.1
 
-        # Check for complete sentences (proper punctuation)
-        sentence_endings = content.count(".") + content.count("?") + content.count("!")
-        score += sentence_endings * 0.05
+#         # Check for complete sentences (proper punctuation)
+#         sentence_endings = content.count(".") + content.count("?") + content.count("!")
+#         score += sentence_endings * 0.05
 
-        # Check for paragraph breaks (double newlines)
-        paragraphs = content.count("\\n\\n")
-        score += paragraphs * 0.2
+#         # Check for paragraph breaks (double newlines)
+#         paragraphs = content.count("\\n\\n")
+#         score += paragraphs * 0.2
 
-        # Penalty for very short content
-        if len(content.strip()) < 50:
-            score *= 0.5
+#         # Penalty for very short content
+#         if len(content.strip()) < 50:
+#             score *= 0.5
 
-        return score
+#         return score
 
-    score1 = _calculate_structure_score(content1)
-    score2 = _calculate_structure_score(content2)
+#     score1 = _calculate_structure_score(content1)
+#     score2 = _calculate_structure_score(content2)
 
-    # content1 is better if it has significantly higher structure score
-    return score1 > score2 * 1.2
+#     # content1 is better if it has significantly higher structure score
+#     return score1 > score2 * 1.2
 
 
 def extract_notes_from_section(
@@ -550,6 +550,7 @@ def create_links_to_note_relationships(
             tables = section.get("tables", [])
 
             for table in tables:
+                # TODO: check
                 if not table.get("metadata", {}).get("is_financial_table", False):
                     continue
 

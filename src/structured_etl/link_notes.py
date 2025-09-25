@@ -13,35 +13,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 from .kg_schema import NODE_TYPES, RELATIONSHIP_TYPES, PROPS
-from .id_utils import build_category_id, build_note_id
+from .id_utils import build_note_id
+from .load_fs_categories import clean_category_name as clean_category_name_consistent
 from .etl_config import ETLConfig, extract_company_info_from_data
 from .note_utils import normalize_note_cell, extract_note_numbers
 
 
 def clean_category_name(item_name: str) -> str:
-    """Clean category name by removing numbering prefixes.
-
-    Args:
-        item_name: Raw item name (e.g., "1. 현금및현금성자산")
-
-    Returns:
-        Cleaned item name (e.g., "현금및현금성자산")
-    """
-    if not item_name:
-        return ""
-
-    # Remove patterns like "1. ", "12. ", "Ⅰ. ", "가. ", etc.
-    cleaned = re.sub(r"^[0-9]+\.?\s+", "", item_name.strip())
-    cleaned = re.sub(r"^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?\s+", "", cleaned)
-    cleaned = re.sub(r"^[가나다라마바사아자차카타파하]\.?\s+", "", cleaned)
-    cleaned = re.sub(r"^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\.?\s+", "", cleaned)
-
-    # Remove additional patterns found in actual data
-    cleaned = re.sub(r"^[ㆍ·]+\s*", "", cleaned)  # Bullet points
-    cleaned = re.sub(r"^\s*[-–—]\s*", "", cleaned)  # Dashes
-    cleaned = re.sub(r"^\s*[•]\s*", "", cleaned)  # Bullets
-
-    return cleaned.strip()
+    """Use consistent category cleaning from load_fs_categories."""
+    return clean_category_name_consistent(item_name)
 
 
 def _has_financial_table_structure(table_data: List[Dict[str, Any]]) -> bool:
@@ -156,7 +136,7 @@ def extract_note_references_from_table(
 
     # Enhanced section detection - check both metadata and content
     metadata = table.get("metadata", {})
-    is_financial_table = metadata.get("is_financial_table", False)
+    is_financial_table = metadata.get("is_financial_table", False)  # TODO: check
 
     # Also check if table has financial structure (columns with amounts, etc.)
     has_financial_structure = _has_financial_table_structure(table_data)
@@ -201,7 +181,7 @@ def extract_note_references_from_table(
             continue
 
         # Clean the item name by removing numbering prefixes
-        cleaned_item_name = clean_category_name(item_name)
+        cleaned_item_name = clean_category_name_consistent(item_name)
         if not cleaned_item_name:
             continue
 
@@ -287,6 +267,15 @@ def determine_section_from_table_structure(table_data: List[Dict[str, Any]]) -> 
         "투자활동으로 인한 현금흐름",
         "재무활동으로 인한 현금흐름",
         "현금 및 현금성자산의 순증가",
+        "현금영업이익",
+        "현금영업손실",
+        "현금영업활동",
+        "현금투자활동",
+        "현금재무활동",
+        "현금흐름",
+        "영업현금흐름",
+        "투자현금흐름",
+        "재무현금흐름",
     ]
 
     # Equity Statement indicators (specific equity terms)
@@ -304,6 +293,16 @@ def determine_section_from_table_structure(table_data: List[Dict[str, Any]]) -> 
         "자본변동내역",
         "주식발행전환사채",
         "신종자본증권",
+        "자본조정",
+        "자본거래",
+        "자본변동사항",
+        "주주지분",
+        "자기주식",
+        "자기주식의 취득",
+        "자기주식의 처분",
+        "주식매수선택권",
+        "주식보상비용",
+        "기타자본조정",
     ]
 
     # Comprehensive Income indicators (before PL to distinguish CI from PL)
@@ -482,34 +481,39 @@ def create_fs_note_links(
         # Create links for each reference
         for ref in all_references:
             links_attempted += 1
-
-            # Build IDs - use category_path format like in load_fs_categories
-            category_path = f"{ref['section_code']}>{ref['item_name']}"
-            category_id = build_category_id(
-                company_name, ref["section_code"], category_path
-            )
             note_id = build_note_id(company_name, ref["year"], ref["note_number"])
-
-            # Check if both nodes exist and create link
+            cleaned_name = (
+                clean_category_name(ref["item_name"]) if ref["item_name"] else ""
+            )
             result = session.run(
                 f"""
-                OPTIONAL MATCH (cat:{NODE_TYPES['FS_CATEGORY']} {{ {PROPS['id']}: $category_id }})
+                OPTIONAL MATCH (cat:{NODE_TYPES['FS_CATEGORY']})
+                WHERE cat.{PROPS['section_code']} = $section_code
+                  AND cat.{PROPS['company']} = $company_name
+                  AND (cat.{PROPS['name']} = $cleaned_name OR cat.original_name = $original_name)
                 OPTIONAL MATCH (n:{NODE_TYPES['NOTE']} {{ {PROPS['id']}: $note_id }})
-                RETURN cat.{PROPS['name']} AS category_name, 
+                RETURN cat.{PROPS['id']} AS category_id,
+                       cat.{PROPS['name']} AS category_name,
                        n.{PROPS['note_number']} AS note_number,
                        cat IS NOT NULL AS cat_exists,
                        n IS NOT NULL AS note_exists
                 """,
-                {"category_id": category_id, "note_id": note_id},
+                {
+                    "section_code": ref["section_code"],
+                    "company_name": company_name,
+                    "cleaned_name": cleaned_name,
+                    "original_name": ref["item_name"],
+                    "note_id": note_id,
+                },
             )
 
             record = result.single()
             if record:
                 cat_exists = record["cat_exists"]
                 note_exists = record["note_exists"]
+                category_id = record["category_id"]
 
-                if cat_exists and note_exists:
-                    # Both nodes exist, create the link
+                if cat_exists and note_exists and category_id:
                     link_result = session.run(
                         f"""
                         MATCH (cat:{NODE_TYPES['FS_CATEGORY']} {{ {PROPS['id']}: $category_id }})
@@ -530,7 +534,7 @@ def create_fs_note_links(
                     link_record = link_result.single()
                     if link_record:
                         links_created += 1
-                        if links_created <= 5:  # Show first few links
+                        if links_created <= 5:
                             print(
                                 f"    ✓ Linked: {record['category_name']} -> Note {record['note_number']}"
                             )
@@ -538,7 +542,7 @@ def create_fs_note_links(
                     missing_categories.add(f"{ref['section_code']}:{ref['item_name']}")
                     if len(missing_categories) <= 3:
                         print(
-                            f"    ❌ Missing category: {ref['item_name']} (ID: {category_id[:20]}...)"
+                            f"    ❌ Missing category(match by name): {ref['item_name']}"
                         )
                 elif not note_exists:
                     missing_notes.add(f"{ref['year']}:{ref['note_number']}")
@@ -603,6 +607,62 @@ def create_fs_note_links(
         print(f"  Potential for improvement: {5 - total_sections_with_links} sections")
 
     return result
+
+
+def create_financial_data_note_links(session, config: ETLConfig) -> Dict[str, Any]:
+    """Create LINKS_TO_NOTE from financial_data based on its notes array.
+
+    This is a post-step after NOTE nodes exist. It scans financial_data nodes
+    having a non-empty notes array, extracts note numbers, and links them.
+    """
+    company_name = config.company_name
+    links_created = 0
+    processed = 0
+
+    # Fetch candidate financial_data rows (with notes)
+    result = session.run(
+        f"""
+        MATCH (fd:{NODE_TYPES['FINANCIAL_DATA']})
+        WHERE fd.notes IS NOT NULL AND size(fd.notes) > 0
+        RETURN fd.{PROPS['id']} AS id,
+               fd.{PROPS['year']} AS year,
+               fd.{PROPS['company']} AS company,
+               fd.notes AS notes
+        """
+    )
+    rows = result.data()
+
+    for rec in rows:
+        processed += 1
+        fd_id = rec["id"]
+        year = rec["year"]
+        # Prefer fd.company if present, else fall back to config
+        comp = rec.get("company") or company_name
+        notes_list = rec.get("notes") or []
+        if not isinstance(notes_list, list):
+            continue
+
+        # Extract unique note numbers across all entries
+        note_nums: set[str] = set()
+        for entry in notes_list:
+            for n in extract_note_numbers(entry):
+                note_nums.add(str(n))
+
+        for n in sorted(note_nums):
+            note_id = build_note_id(comp, year, n)
+            link_res = session.run(
+                f"""
+                MATCH (fd:{NODE_TYPES['FINANCIAL_DATA']} {{ {PROPS['id']}: $fd_id }})
+                MATCH (note:{NODE_TYPES['NOTE']} {{ {PROPS['id']}: $note_id }})
+                MERGE (fd)-[:{RELATIONSHIP_TYPES['LINKS_TO_NOTE']}]->(note)
+                RETURN 'ok' AS status
+                """,
+                {"fd_id": fd_id, "note_id": note_id},
+            )
+            if link_res.single():
+                links_created += 1
+
+    return {"processed": processed, "links_created": links_created}
 
 
 def validate_fs_note_links(session, config: ETLConfig) -> Dict[str, Any]:
