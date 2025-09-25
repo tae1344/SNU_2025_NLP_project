@@ -148,7 +148,7 @@ graph LR
 
 ### 4. **최종 구현된 노드 타입 및 관계 정의**
 
-#### 4.1 확장된 Node Types
+#### 4.1 확장된 Node Types (최종 DB 기준)
 ```python
 NODE_TYPES = {
     # 기본 구조
@@ -157,25 +157,25 @@ NODE_TYPES = {
     "AFFILIATE": "affiliate",                # 관계기업 (20-50% 지분)
     "JOINT_VENTURE": "joint_venture",        # 공동기업
     "SPECIAL_RELATION": "special_relation",  # 특수관계기업
-    
+
     # 재무제표 구조
     "FS_SECTION": "financial_statement",     # 재무제표 섹션
     "FS_CATEGORY": "fs_category",            # 재무제표 세부 카테고리
     "YEAR_NODE": "year_node",                # 년도별 노드
     "FINANCIAL_DATA": "financial_data",      # 실제 재무 데이터
-    
+
     # 감사 정보
     "AUDITOR": "auditor",                    # 감사사
     "AUDIT_INFO": "audit_info",              # 감사 정보
-    
+
     # 주석 시스템
     "NOTE": "note",                          # 주석 본문
     "NOTE_CATEGORY": "note_category",        # 주석 유형
-    
+
     # 시계열 분석
     "FINANCIAL_TREND": "financial_trend",    # 재무 트렌드 분석
     "RELATIONSHIP_CHANGE": "relationship_change", # 관계 변화 추적
-    
+
     # 검색 및 개념
     "CONCEPT": "concept",                    # 재무 개념
     "RISK_TERM": "risk_term",                # 리스크 용어
@@ -183,7 +183,7 @@ NODE_TYPES = {
 }
 ```
 
-#### 4.2 확장된 Relationship Types
+#### 4.2 확장된 Relationship Types (최종 DB 기준)
 ```python
 RELATIONSHIP_TYPES = {
     # 회사 관계 세분화
@@ -191,34 +191,32 @@ RELATIONSHIP_TYPES = {
     "HAS_AFFILIATE": "has_affiliate",             # 관계기업 관계
     "HAS_JOINT_VENTURE": "has_joint_venture",     # 공동기업 관계
     "HAS_SPECIAL_RELATION": "has_special_relation", # 특수관계기업
-    
-    # 회사간 재무 관계
+
+    # 회사간 재무 관계 (최종 DB 기준으로 존재 확인된 타입)
     "INVESTS_IN": "invests_in",                   # 투자 관계
-    "TRADES_WITH": "trades_with",                 # 거래 관계
-    "OWES_TO": "owes_to",                         # 채무 관계
     "GUARANTEES_FOR": "guarantees_for",           # 보증 관계
-    
+
     # 재무제표 구조
     "HAS_FINANCIAL_STATEMENT": "has_financial_statement",
     "HAS_CATEGORY": "has_category",
     "HAS_YEAR_DATA": "has_year_data",
     "CONTAINS_DATA": "contains_data",
-    
+
     # 감사 정보
     "AUDITED_BY": "audited_by",
     "HAS_AUDIT_INFO": "has_audit_info",
-    
+
     # 주석 시스템
     "HAS_NOTE": "has_note",
     "HAS_NOTE_CATEGORY": "has_note_category",
     "LINKS_TO_NOTE": "links_to_note",
-    
+
     # 시계열 분석
     "TREND_TO": "trend_to",                       # 시계열 트렌드
     "HAS_TREND": "has_trend",                     # 트렌드 관계
     "HAS_CHANGE": "has_change",                   # 변화 관계
     "PRECEDES": "precedes",                       # 시간적 선후 관계
-    
+
     # 일반 관계
     "RELATED_TO": "related_to",
     "MAPPED_TO": "mapped_to"
