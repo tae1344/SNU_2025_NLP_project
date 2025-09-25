@@ -31,7 +31,6 @@ from .load_notes import load_note_nodes
 from .link_notes import load_fs_note_links, create_financial_data_note_links
 from .load_search_docs import load_search_doc_nodes
 from .link_trends import load_trend_relationships
-from .track_relationship_changes import load_relationship_changes
 
 
 def run_optimized_etl(
@@ -166,13 +165,8 @@ def run_optimized_etl(
             load_trend_relationships(session, files_to_process, etl_config)
             print("✅ Trend relationships created")
 
-            # 12) Track relationship changes (NEW)
-            print("\n🔄 Step 12.5: Tracking relationship changes...")
-            load_relationship_changes(session, files_to_process, etl_config)
-            print("✅ Relationship changes tracked")
-
-            # 13) Final verification and metrics
-            print("\n📊 Step 13: Final verification and performance metrics...")
+            # 12) Final verification and metrics
+            print("\n📊 Step 12: Final verification and performance metrics...")
 
             # Get simplified counts to avoid timeout
             counts = {}
